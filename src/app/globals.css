@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+:root {
+  /* Palette Solidarité Plus — Colours.Cafe #42 */
+  --sand: #d09c79;
+  --navy: #1d2d50;
+  --cream: #f4e4d7;
+  --gold: #ffcd79;
+
+  --surface: var(--cream);
+  --panel: #fffaf5;
+  --ink: var(--navy);
+  --muted: #5a6478;
+  --line: #e2d0c2;
+  --brand: var(--navy);
+  --brand-dark: #152238;
+  --brand-soft: #ffe9b8;
+  --accent: var(--sand);
+  --hero-deep: #152238;
+  --hero-mid: #1d2d50;
+  --cta: var(--gold);
+}
+
+@theme inline {
+  --color-background: var(--surface);
+  --color-foreground: var(--ink);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+body {
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-body), "Open Sans", sans-serif;
+  --font-display: var(--font-body);
+}
+
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  input[type="submit"]:not(:disabled),
+  input[type="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  input[type="submit"]:disabled,
+  input[type="button"]:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@keyframes tsp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes tsp-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes tsp-drift {
+  0%,
+  100% {
+    transform: scale(1.02) translate3d(0, 0, 0);
+  }
+  50% {
+    transform: scale(1.08) translate3d(1.5%, -1%, 0);
+  }
+}
+
+@keyframes tsp-line {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.tsp-rise {
+  animation: tsp-rise 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tsp-rise-delay-1 {
+  animation-delay: 0.12s;
+}
+
+.tsp-rise-delay-2 {
+  animation-delay: 0.24s;
+}
+
+.tsp-rise-delay-3 {
+  animation-delay: 0.36s;
+}
+
+.tsp-fade {
+  animation: tsp-fade 1.2s ease both;
+}
+
+.tsp-drift {
+  animation: tsp-drift 22s ease-in-out infinite;
+}
+
+.tsp-accent-line {
+  transform-origin: left;
+  animation: tsp-line 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tsp-rise,
+  .tsp-rise-delay-1,
+  .tsp-rise-delay-2,
+  .tsp-rise-delay-3,
+  .tsp-fade,
+  .tsp-drift,
+  .tsp-accent-line {
+    animation: none;
+  }
+
+  .tsp-drift {
+    transform: none;
+  }
+}
