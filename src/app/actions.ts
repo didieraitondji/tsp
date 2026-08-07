@@ -73,11 +73,12 @@ export async function createUserAction(formData: FormData) {
   await requireRole(["SUPER_ADMIN"]);
   const parsed = createUserSchema.safeParse({
     phone: formData.get("phone"),
-    password: formData.get("password"),
+    password: formData.get("password") || undefined,
     name: formData.get("name"),
     role: formData.get("role"),
     memberId: formData.get("memberId") || null,
     active: formData.get("active") !== "false",
+    email: formData.get("email") || "",
   });
   if (!parsed.success) return;
 
@@ -89,15 +90,22 @@ export async function createUserAction(formData: FormData) {
     return;
   }
 
+  const { DEFAULT_TEMP_PASSWORD } = await import("@/lib/auth/constants");
+  const tempPassword = data.password || DEFAULT_TEMP_PASSWORD;
+  const email = data.email?.trim() ? data.email.trim().toLowerCase() : null;
+
   const now = new Date().toISOString();
   const user: User = {
     id: newId("USR"),
     phone,
-    passwordHash: await bcrypt.hash(data.password, 10),
+    passwordHash: await bcrypt.hash(tempPassword, 10),
     name: data.name,
     role: data.role,
     memberId: data.role === "MEMBRE" ? data.memberId : null,
     active: data.active,
+    email,
+    mustChangePassword: true,
+    twoFactorEnabled: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -155,28 +163,50 @@ export async function updateUserAction(formData: FormData) {
   return;
 }
 
-export async function saveSettingsAction(formData: FormData) {
+export type SaveSettingsState = { error?: string; ok?: boolean } | null;
+
+function parseSettingsRate(raw: FormDataEntryValue | null): number {
+  let n = Number(String(raw ?? "").replace(",", "."));
+  if (!Number.isFinite(n) || n < 0) return Number.NaN;
+  // Saisie en % (ex. 2 ou 10) → décimal ; 0.02 / 0.1 restent tels quels
+  if (n > 1) n = n / 100;
+  return n;
+}
+
+export async function saveSettingsAction(
+  _prev: SaveSettingsState,
+  formData: FormData
+): Promise<SaveSettingsState> {
   await requireRole(["SUPER_ADMIN"]);
+  const password = String(formData.get("password") || "");
+  if (!password) return { error: "Mot de passe requis." };
+
+  const okPwd = await verifySessionPassword(password);
+  if (!okPwd) return { error: "Mot de passe incorrect." };
+
   const parsed = settingsSchema.safeParse({
-    interestRateMonthly: Number(formData.get("interestRateMonthly")),
-    interestRateExtra: Number(formData.get("interestRateExtra")),
+    interestRateMonthly: parseSettingsRate(formData.get("interestRateMonthly")),
+    interestRateExtra: parseSettingsRate(formData.get("interestRateExtra")),
     contributionMin: Number(formData.get("contributionMin")),
     contributionStandard: Number(formData.get("contributionStandard")),
     penaltyLateContribution: Number(formData.get("penaltyLateContribution")),
     penaltyAbsence: Number(formData.get("penaltyAbsence")),
-    loanWithdrawalFeeRate: Number(formData.get("loanWithdrawalFeeRate")),
+    loanWithdrawalFeeRate: parseSettingsRate(formData.get("loanWithdrawalFeeRate")),
     loanMaxDurationMonths: Number(formData.get("loanMaxDurationMonths")),
     maxMembers: Number(formData.get("maxMembers")),
     year: Number(formData.get("year")),
     cashOpeningBalance: Number(formData.get("cashOpeningBalance")),
     organizationName: String(formData.get("organizationName") || "Solidarité Plus"),
   });
-  if (!parsed.success) return;
+  if (!parsed.success) return { error: "Données invalides. Vérifiez les champs." };
+
   await settingsRepo.save(parsed.data);
   await audit("settings.update");
   revalidatePath("/admin/parametres");
   revalidatePath("/gestion");
-  return;
+  revalidatePath("/gestion/parametres");
+  revalidatePath("/gestion/prets");
+  return { ok: true };
 }
 
 export async function saveMemberAction(formData: FormData) {

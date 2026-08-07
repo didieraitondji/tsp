@@ -46,11 +46,13 @@ export const settingsSchema = z.object({
 
 export const createUserSchema = z.object({
   phone: beninPhoneRequired,
-  password: z.string().min(6),
+  /** Optionnel : un MDP temporaire est attribué automatiquement. */
+  password: z.string().min(6).optional(),
   name: z.string().min(2),
   role: roleSchema,
   memberId: z.string().optional().nullable(),
   active: z.boolean().default(true),
+  email: z.string().email().optional().or(z.literal("")),
 });
 
 export const updateUserSchema = z.object({

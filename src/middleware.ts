@@ -3,8 +3,17 @@ import { NextResponse } from "next/server";
 
 export default withAuth(
   function middleware(req) {
-    const role = req.nextauth.token?.role as string | undefined;
+    const token = req.nextauth.token;
+    const role = token?.role as string | undefined;
     const path = req.nextUrl.pathname;
+
+    if (
+      token?.mustChangePassword &&
+      !path.startsWith("/auth/setup-password") &&
+      !path.startsWith("/api/auth")
+    ) {
+      return NextResponse.redirect(new URL("/auth/setup-password", req.url));
+    }
 
     if (path.startsWith("/admin") && role !== "SUPER_ADMIN") {
       return NextResponse.redirect(new URL(fallback(role), req.url));
@@ -35,7 +44,8 @@ export default withAuth(
         if (
           path.startsWith("/membre") ||
           path.startsWith("/gestion") ||
-          path.startsWith("/admin")
+          path.startsWith("/admin") ||
+          path.startsWith("/auth/setup-password")
         ) {
           return !!token;
         }
@@ -53,5 +63,11 @@ function fallback(role?: string) {
 }
 
 export const config = {
-  matcher: ["/membre/:path*", "/gestion/:path*", "/admin/:path*"],
+  matcher: [
+    "/membre/:path*",
+    "/gestion/:path*",
+    "/admin/:path*",
+    "/auth/setup-password",
+    "/auth/setup-password/:path*",
+  ],
 };

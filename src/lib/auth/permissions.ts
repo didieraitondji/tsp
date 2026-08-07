@@ -36,6 +36,17 @@ export function isLoanQuorumRole(role: Role): boolean {
   return LOAN_QUORUM_ROLES.includes(role);
 }
 
+/** Peuvent activer la 2FA email. */
+export const TWO_FACTOR_ROLES: Role[] = [
+  "SUPER_ADMIN",
+  "GESTIONNAIRE",
+  "GESTIONNAIRE_LECTURE",
+];
+
+export function canUseTwoFactor(role: Role): boolean {
+  return TWO_FACTOR_ROLES.includes(role);
+}
+
 export function roleLabel(role: Role): string {
   switch (role) {
     case "SUPER_ADMIN":

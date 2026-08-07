@@ -24,6 +24,12 @@ export interface User {
   active: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Email pour OTP (setup MDP / 2FA). */
+  email?: string | null;
+  /** true tant que le MDP temporaire n’a pas été changé. */
+  mustChangePassword?: boolean;
+  /** 2FA email OTP — Super admin / Gestionnaire / Lecture uniquement. */
+  twoFactorEnabled?: boolean;
 }
 
 export interface Settings {

@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { UserPlus, ShieldCheck, UserCog, Users } from "lucide-react";
+import { Mail, ShieldCheck, UserCog, Users } from "lucide-react";
 import { globalMembersRepo, usersRepo } from "@/lib/db/collections";
-import { createUserAction, updateUserAction } from "@/app/actions";
+import { updateUserAction } from "@/app/actions";
 import { memberDisplayName } from "@/lib/db/domain";
-import { Button, Input, Label, Select } from "@/components/ui";
-import { PasswordInput } from "@/components/password-input";
-import { PhoneInput } from "@/components/phone-input";
+import { DEFAULT_TEMP_PASSWORD } from "@/lib/auth/constants";
+import { CreateUserModal } from "@/components/create-user-modal";
+import { Button, Select } from "@/components/ui";
 
 const FILTERS = [
   { key: "all", label: "Tous" },
@@ -24,8 +24,13 @@ export default async function UtilisateursPage({
   const filter = sp.role || "all";
   const [users, members] = await Promise.all([usersRepo.all(), globalMembersRepo.all()]);
 
-  const filtered =
-    filter === "all" ? users : users.filter((u) => u.role === filter);
+  const filtered = filter === "all" ? users : users.filter((u) => u.role === filter);
+  const sorted = [...filtered].sort(
+    (a, b) =>
+      Number(b.active) - Number(a.active) ||
+      a.name.localeCompare(b.name, "fr") ||
+      a.phone.localeCompare(b.phone)
+  );
 
   const counts = {
     all: users.length,
@@ -35,194 +40,224 @@ export default async function UtilisateursPage({
     SUPER_ADMIN: users.filter((u) => u.role === "SUPER_ADMIN").length,
   };
 
+  const activeCount = users.filter((u) => u.active).length;
+  const pendingPwd = users.filter((u) => u.mustChangePassword).length;
+  const memberOptions = members.map((m) => ({
+    id: m.id,
+    label: `${m.id} — ${memberDisplayName(m)}`,
+  }));
+
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="-mx-4 px-4 md:-mx-8 md:px-[100px]">
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--sand)]">
             Accès
           </p>
-          <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl font-bold tracking-tight">
+          <h1 className="mt-2 font-[family-name:var(--font-display)] text-3xl font-bold tracking-tight md:text-4xl">
             Comptes & rôles
           </h1>
           <p className="mt-2 max-w-xl text-[var(--muted)]">
-            Créez des gestionnaires pour le bureau, et des comptes membres en lecture seule.
+            MDP temporaire <span className="font-mono font-semibold">{DEFAULT_TEMP_PASSWORD}</span> —
+            changement obligatoire à la 1ʳᵉ connexion.
           </p>
         </div>
+        <CreateUserModal
+          members={memberOptions}
+          defaultRole={
+            filter === "GESTIONNAIRE" ||
+            filter === "GESTIONNAIRE_LECTURE" ||
+            filter === "MEMBRE" ||
+            filter === "SUPER_ADMIN"
+              ? filter
+              : "GESTIONNAIRE"
+          }
+        />
       </div>
 
-      <div className="mb-6 flex flex-wrap gap-2">
-        {FILTERS.map((f) => {
-          const active = filter === f.key;
-          const count = counts[f.key as keyof typeof counts];
-          return (
-            <Link
-              key={f.key}
-              href={f.key === "all" ? "/admin/utilisateurs" : `/admin/utilisateurs?role=${f.key}`}
-              className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
-                active
-                  ? "bg-[#1D2D50] text-[#F4E4D7]"
-                  : "bg-white text-[var(--muted)] ring-1 ring-[var(--line)] hover:text-[var(--navy)]"
-              }`}
-            >
-              {f.label}
-              <span
-                className={`rounded-full px-1.5 text-xs ${
-                  active ? "bg-white/15" : "bg-[var(--cream)]"
-                }`}
-              >
-                {count}
-              </span>
-            </Link>
-          );
-        })}
+      <div className="mb-6 grid gap-3 sm:grid-cols-3">
+        <Stat icon={<Users className="h-4 w-4" />} label="Total comptes" value={users.length} />
+        <Stat icon={<UserCog className="h-4 w-4" />} label="Actifs" value={activeCount} tone="emerald" />
+        <Stat
+          icon={<ShieldCheck className="h-4 w-4" />}
+          label="MDP à changer"
+          value={pendingPwd}
+          tone="amber"
+        />
       </div>
 
-      <div className="grid gap-8 lg:grid-cols-[1.35fr_1fr]">
-        <section className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
-          <div className="border-b border-[var(--line)] px-5 py-4">
-            <h2 className="font-semibold text-[var(--navy)]">
-              {filtered.length} compte{filtered.length > 1 ? "s" : ""}
-            </h2>
+      <section className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-5 py-4">
+          <div>
+            <p className="text-sm font-semibold text-[var(--navy)]">
+              {sorted.length} compte{sorted.length === 1 ? "" : "s"}
+            </p>
+            <p className="text-xs text-[var(--muted)]">
+              {filter === "all" ? "Tous les rôles" : FILTERS.find((f) => f.key === filter)?.label}
+            </p>
           </div>
-          <div className="divide-y divide-[var(--line)]">
-            {filtered.length === 0 && (
-              <p className="px-5 py-10 text-center text-sm text-[var(--muted)]">
-                Aucun compte dans ce filtre.
-              </p>
-            )}
-            {filtered.map((u) => (
-              <article key={u.id} className="px-5 py-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold text-[var(--navy)]">{u.name}</p>
-                      <RoleBadge role={u.role} />
-                      {!u.active && (
-                        <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
-                          Inactif
-                        </span>
-                      )}
+          <div className="flex flex-wrap gap-2">
+            {FILTERS.map((f) => {
+              const active = filter === f.key;
+              const count = counts[f.key as keyof typeof counts];
+              return (
+                <Link
+                  key={f.key}
+                  href={f.key === "all" ? "/admin/utilisateurs" : `/admin/utilisateurs?role=${f.key}`}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    active
+                      ? "bg-[#1D2D50] text-[#FFCD79]"
+                      : "border border-[var(--line)] text-[var(--navy)] hover:bg-[var(--cream)]"
+                  }`}
+                >
+                  {f.label}
+                  <span
+                    className={`rounded-full px-1.5 text-[10px] ${
+                      active ? "bg-white/15" : "bg-[var(--cream)] text-[var(--muted)]"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+
+        {sorted.length === 0 ? (
+          <p className="px-6 py-14 text-center text-sm text-[var(--muted)]">Aucun compte.</p>
+        ) : (
+          <div className="grid gap-4 p-5 sm:grid-cols-2 xl:grid-cols-3">
+            {sorted.map((u) => {
+              const linked = u.memberId
+                ? members.find((m) => m.id === u.memberId)
+                : undefined;
+              return (
+                <article
+                  key={u.id}
+                  className="flex flex-col rounded-2xl border border-[var(--line)] bg-[var(--cream)]/30 p-4 transition hover:border-[#FFCD79] hover:bg-white"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-[var(--navy)]">{u.name}</p>
+                      <p className="mt-0.5 font-mono text-xs text-[var(--muted)]">{u.phone}</p>
                     </div>
-                    <p className="mt-1 font-mono text-xs text-[var(--muted)]">{u.phone}</p>
-                    {u.memberId && (
-                      <p className="mt-1 text-xs text-[var(--muted)]">Lié à {u.memberId}</p>
+                    <RoleBadge role={u.role} />
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {!u.active && (
+                      <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-red-700">
+                        Inactif
+                      </span>
+                    )}
+                    {u.mustChangePassword && (
+                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-900">
+                        MDP temporaire
+                      </span>
+                    )}
+                    {u.email ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] text-[var(--muted)] ring-1 ring-[var(--line)]">
+                        <Mail className="h-3 w-3" />
+                        {u.email}
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-[var(--muted)] ring-1 ring-[var(--line)]">
+                        Pas d’email
+                      </span>
                     )}
                   </div>
-                </div>
 
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <form action={updateUserAction} className="flex flex-wrap items-center gap-2">
-                    <input type="hidden" name="id" value={u.id} />
-                    <Select name="role" defaultValue={u.role} className="!w-auto !rounded-full !py-1.5 text-xs">
-                      <option value="SUPER_ADMIN">Super admin</option>
-                      <option value="GESTIONNAIRE">Gestionnaire</option>
-                      <option value="GESTIONNAIRE_LECTURE">Gestionnaire lecture</option>
-                      <option value="MEMBRE">Membre</option>
-                    </Select>
-                    <Select
-                      name="memberId"
-                      defaultValue={u.memberId || ""}
-                      className="!w-auto !rounded-full !py-1.5 text-xs"
-                    >
-                      <option value="">Membre lié —</option>
-                      {members.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.id}
-                        </option>
-                      ))}
-                    </Select>
-                    <Button type="submit" variant="secondary" className="!rounded-full !px-3 !py-1.5 text-xs">
-                      Enregistrer
-                    </Button>
-                  </form>
-                  <form action={updateUserAction}>
-                    <input type="hidden" name="id" value={u.id} />
-                    <input type="hidden" name="active" value={u.active ? "false" : "true"} />
-                    <Button
-                      type="submit"
-                      variant={u.active ? "danger" : "secondary"}
-                      className="!rounded-full !px-3 !py-1.5 text-xs"
-                    >
-                      {u.active ? "Désactiver" : "Réactiver"}
-                    </Button>
-                  </form>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
+                  {u.memberId && (
+                    <p className="mt-2 text-xs text-[var(--muted)]">
+                      Lié : {linked ? memberDisplayName(linked) : u.memberId}
+                    </p>
+                  )}
 
-        <section className="h-fit rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-6">
-          <div className="flex items-center gap-2 text-[var(--sand)]">
-            <UserPlus className="h-5 w-5" strokeWidth={1.75} />
-            <p className="text-xs font-semibold uppercase tracking-[0.16em]">Nouveau compte</p>
+                  <div className="mt-auto space-y-2 border-t border-[var(--line)] pt-3">
+                    <form action={updateUserAction} className="space-y-2">
+                      <input type="hidden" name="id" value={u.id} />
+                      <Select name="role" defaultValue={u.role} className="!rounded-xl !py-2 text-xs">
+                        <option value="SUPER_ADMIN">Super admin</option>
+                        <option value="GESTIONNAIRE">Gestionnaire</option>
+                        <option value="GESTIONNAIRE_LECTURE">Gestionnaire lecture</option>
+                        <option value="MEMBRE">Membre</option>
+                      </Select>
+                      <Select
+                        name="memberId"
+                        defaultValue={u.memberId || ""}
+                        className="!rounded-xl !py-2 text-xs"
+                      >
+                        <option value="">Membre lié —</option>
+                        {members.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {memberDisplayName(m)}
+                          </option>
+                        ))}
+                      </Select>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="submit"
+                          variant="secondary"
+                          className="!rounded-full !px-3 !py-1.5 text-xs"
+                        >
+                          Enregistrer
+                        </Button>
+                      </div>
+                    </form>
+                    <form action={updateUserAction}>
+                      <input type="hidden" name="id" value={u.id} />
+                      <input type="hidden" name="active" value={u.active ? "false" : "true"} />
+                      <Button
+                        type="submit"
+                        variant={u.active ? "danger" : "secondary"}
+                        className="!w-full !rounded-full !px-3 !py-1.5 text-xs"
+                      >
+                        {u.active ? "Désactiver" : "Réactiver"}
+                      </Button>
+                    </form>
+                  </div>
+                </article>
+              );
+            })}
           </div>
-          <h2 className="mt-2 font-[family-name:var(--font-display)] text-xl font-bold">
-            Créer un utilisateur
-          </h2>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            Priorité : comptes <strong>Gestionnaire</strong> pour le bureau.
+        )}
+      </section>
+    </div>
+  );
+}
+
+function Stat({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  tone?: "emerald" | "amber";
+}) {
+  const toneClass =
+    tone === "emerald"
+      ? "bg-emerald-50 text-emerald-800"
+      : tone === "amber"
+        ? "bg-amber-50 text-amber-800"
+        : "bg-[#1D2D50] text-[#FFCD79]";
+  return (
+    <div className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] px-4 py-4">
+      <div className="flex items-center gap-3">
+        <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${toneClass}`}>
+          {icon}
+        </span>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+            {label}
           </p>
-
-          <form action={createUserAction} className="mt-5 space-y-4">
-            <div>
-              <Label>Nom complet</Label>
-              <Input name="name" required placeholder="Ex. Trésorier principal" />
-            </div>
-            <div>
-              <Label>Téléphone</Label>
-              <PhoneInput name="phone" required showIcon={false} />
-              <p className="mt-1 text-xs text-[var(--muted)]">+229 · 10 chiffres</p>
-            </div>
-            <div>
-              <Label>Mot de passe</Label>
-              <PasswordInput name="password" required minLength={6} autoComplete="new-password" />
-            </div>
-            <div>
-              <Label>Rôle</Label>
-              <Select name="role" defaultValue="GESTIONNAIRE">
-                <option value="GESTIONNAIRE">Gestionnaire</option>
-                <option value="GESTIONNAIRE_LECTURE">Gestionnaire lecture</option>
-                <option value="MEMBRE">Membre</option>
-                <option value="SUPER_ADMIN">Super admin</option>
-              </Select>
-            </div>
-            <div>
-              <Label>Membre lié (si rôle Membre)</Label>
-              <Select name="memberId" defaultValue="">
-                <option value="">—</option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.id} — {memberDisplayName(m)}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <Button type="submit" className="w-full !rounded-full">
-              Créer le compte
-            </Button>
-          </form>
-
-          <ul className="mt-6 space-y-2 border-t border-[var(--line)] pt-5 text-xs text-[var(--muted)]">
-            <li className="flex gap-2">
-              <UserCog className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--sand)]" />
-              Gestionnaire : saisie cotisations, prêts, caisse.
-            </li>
-            <li className="flex gap-2">
-              <UserCog className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--sand)]" />
-              Gestionnaire lecture : consultation + confirmation des prêts (pas de modification).
-            </li>
-            <li className="flex gap-2">
-              <Users className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--sand)]" />
-              Membre : consultation uniquement de son dossier.
-            </li>
-            <li className="flex gap-2">
-              <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--sand)]" />
-              Super admin : droits complets (à utiliser avec parcimonie).
-            </li>
-          </ul>
-        </section>
+          <p className="font-[family-name:var(--font-display)] text-2xl font-bold text-[var(--navy)]">
+            {value}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -236,7 +271,7 @@ function RoleBadge({ role }: { role: string }) {
         ? "bg-[#FFCD79]/35 text-[#1D2D50]"
         : role === "GESTIONNAIRE_LECTURE"
           ? "bg-sky-50 text-sky-900"
-          : "bg-[var(--cream)] text-[var(--muted)]";
+          : "bg-white text-[var(--muted)] ring-1 ring-[var(--line)]";
   const label =
     role === "SUPER_ADMIN"
       ? "Super admin"
@@ -246,7 +281,7 @@ function RoleBadge({ role }: { role: string }) {
           ? "Lecture"
           : "Membre";
   return (
-    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${styles}`}>
+    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${styles}`}>
       {label}
     </span>
   );
