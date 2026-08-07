@@ -3,16 +3,22 @@ import type {
   CashEntry,
   Contribution,
   EnrolledMember,
+  Enrollment,
   Loan,
   Member,
+  MemberStatus,
   Penalty,
   Period,
+  PeriodStatus,
   Repayment,
   Settings,
+  Week,
 } from "@/lib/types";
 import {
   cashbookRepo,
   contributionsRepo,
+  enrollmentsRepo,
+  globalMembersRepo,
   listEnrolledForPeriod,
   loansRepo,
   membersRepo,
@@ -22,6 +28,7 @@ import {
   weeksRepo,
 } from "./collections";
 import { DEFAULT_SETTINGS } from "./defaults";
+import { listPeriods } from "./periods";
 import {
   readCollectionForPeriodId,
   readMeta,
@@ -610,6 +617,9 @@ export async function applyLatePenaltiesForWeek(input: {
 
 export type MemberProgress = {
   member: EnrolledMember;
+  periodId: string | null;
+  periodName: string | null;
+  enrolled: boolean;
   totalContributed: number;
   weeklyTarget: number;
   weeksPaid: number;
@@ -624,18 +634,103 @@ export type MemberProgress = {
   penalties: Penalty[];
 };
 
-export async function getMemberProgress(memberId: string): Promise<MemberProgress | null> {
-  const [members, weeks, contributions, loans, repayments, penalties] = await Promise.all([
-    membersRepo.all(),
-    weeksRepo.all(),
-    contributionsRepo.all(),
-    loansRepo.all(),
-    repaymentsRepo.all(),
-    penaltiesRepo.all(),
+export type MemberTontineOption = {
+  id: string;
+  name: string;
+  status: PeriodStatus;
+  weeklyTarget: number;
+  enrollmentStatus: MemberStatus;
+};
+
+/** Tontines où le membre est inscrit. */
+export async function listMemberTontines(memberId: string): Promise<MemberTontineOption[]> {
+  const periods = await listPeriods();
+  const rows = await Promise.all(
+    periods.map(async (p) => {
+      const enrollments = await readCollectionForPeriodId<Enrollment>(p.id, "enrollments");
+      const enrollment = enrollments.find((e) => e.memberId === memberId);
+      if (!enrollment) return null;
+      return {
+        id: p.id,
+        name: p.name,
+        status: p.status,
+        weeklyTarget: enrollment.weeklyTarget,
+        enrollmentStatus: enrollment.status,
+      } satisfies MemberTontineOption;
+    })
+  );
+
+  return rows
+    .filter((r): r is MemberTontineOption => r !== null)
+    .sort(
+      (a, b) =>
+        Number(b.status === "active") - Number(a.status === "active") ||
+        a.name.localeCompare(b.name, "fr")
+    );
+}
+
+/** Choisit la tontine à afficher (query > active > première). */
+export function resolveMemberTontineId(
+  tontines: MemberTontineOption[],
+  requested?: string | null
+): string | null {
+  if (tontines.length === 0) return null;
+  if (requested && tontines.some((t) => t.id === requested)) return requested;
+  return tontines.find((t) => t.status === "active")?.id ?? tontines[0].id;
+}
+
+/**
+ * Progression d’un membre pour une tontine donnée.
+ * Sans periodId : fiche annuaire seule (pas d’inscription / données métier vides).
+ */
+export async function getMemberProgress(
+  memberId: string,
+  periodId?: string | null
+): Promise<MemberProgress | null> {
+  const directory = await globalMembersRepo.all();
+  const member = directory.find((m) => m.id === memberId);
+  if (!member) return null;
+
+  if (!periodId) {
+    return {
+      member: {
+        ...member,
+        enrollmentId: "",
+        status: "Inactif",
+        weeklyTarget: 0,
+      },
+      periodId: null,
+      periodName: null,
+      enrolled: false,
+      totalContributed: 0,
+      weeklyTarget: 0,
+      weeksPaid: 0,
+      weeksTotal: 0,
+      missingWeeks: [],
+      penaltiesDue: 0,
+      loansOutstanding: 0,
+      netBalance: 0,
+      contributions: [],
+      loans: [],
+      repayments: [],
+      penalties: [],
+    };
+  }
+
+  const periods = await listPeriods();
+  const period = periods.find((p) => p.id === periodId) ?? null;
+
+  const [enrollments, weeks, contributions, loans, repayments, penalties] = await Promise.all([
+    readCollectionForPeriodId<Enrollment>(periodId, "enrollments"),
+    readCollectionForPeriodId<Week>(periodId, "weeks"),
+    readCollectionForPeriodId<Contribution>(periodId, "contributions"),
+    readCollectionForPeriodId<Loan>(periodId, "loans"),
+    readCollectionForPeriodId<Repayment>(periodId, "repayments"),
+    readCollectionForPeriodId<Penalty>(periodId, "penalties"),
   ]);
 
-  const member = members.find((m) => m.id === memberId);
-  if (!member) return null;
+  const enrollment = enrollments.find((e) => e.memberId === memberId);
+  const weeklyTarget = enrollment?.weeklyTarget ?? 0;
 
   const memberContributions = contributions.filter((c) => c.memberId === memberId);
   const paidWeekIds = new Set(memberContributions.map((c) => c.weekId));
@@ -643,20 +738,34 @@ export async function getMemberProgress(memberId: string): Promise<MemberProgres
     .filter((w) => !paidWeekIds.has(w.id))
     .map((w) => w.label || w.date);
 
-  const balance = await getMemberBalance(memberId);
+  const totalContributed = memberContributions.reduce((s, c) => s + c.amount, 0);
+  const penaltiesDue = penalties
+    .filter((p) => p.memberId === memberId && !p.paid)
+    .reduce((s, p) => s + p.amount, 0);
   const memberLoans = loans.filter((l) => l.memberId === memberId);
+  const loansOutstanding = memberLoans
+    .filter((l) => l.status !== "Remboursé")
+    .reduce((s, l) => s + loanRemaining(l), 0);
   const loanIds = new Set(memberLoans.map((l) => l.id));
 
   return {
-    member,
-    totalContributed: balance.totalContributed,
-    weeklyTarget: member.weeklyTarget,
+    member: {
+      ...member,
+      enrollmentId: enrollment?.id ?? "",
+      status: enrollment?.status ?? "Inactif",
+      weeklyTarget,
+    },
+    periodId,
+    periodName: period?.name ?? null,
+    enrolled: Boolean(enrollment),
+    totalContributed,
+    weeklyTarget,
     weeksPaid: paidWeekIds.size,
     weeksTotal: weeks.length,
     missingWeeks,
-    penaltiesDue: balance.penaltiesDue,
-    loansOutstanding: balance.loansOutstanding,
-    netBalance: balance.netBalance,
+    penaltiesDue,
+    loansOutstanding,
+    netBalance: totalContributed - penaltiesDue - loansOutstanding,
     contributions: memberContributions,
     loans: memberLoans,
     repayments: repayments.filter((r) => loanIds.has(r.loanId)),

@@ -318,6 +318,8 @@ export async function saveMemberAction(formData: FormData): Promise<MemberAction
   }
 
   const data = parsed.data;
+  const createAccount =
+    formData.get("createAccount") === "on" || formData.get("createAccount") === "true";
 
   if (data.id) {
     await globalMembersRepo.update((items) =>
@@ -338,14 +340,32 @@ export async function saveMemberAction(formData: FormData): Promise<MemberAction
     return { ok: true };
   }
 
+  let accountPhone: string | null = null;
+  if (createAccount) {
+    if (!data.phone) {
+      return { error: "Téléphone requis pour créer le compte membre." };
+    }
+    accountPhone = normalizePhone(data.phone);
+    if (!accountPhone) {
+      return { error: "Téléphone invalide." };
+    }
+    const users = await usersRepo.all();
+    if (users.some((u) => phonesMatch(u.phone, accountPhone!))) {
+      return {
+        error: "Un compte existe déjà avec ce numéro. Désactivez la création de compte ou changez le téléphone.",
+      };
+    }
+  }
+
   const year = new Date().getFullYear();
+  let created: Member | null = null;
   try {
     await globalMembersRepo.update((items) => {
       const id = nextSequentialId(
         items.map((m) => m.id),
         `TSP-${year}-`
       );
-      const created: Member = {
+      created = {
         id,
         lastName: data.lastName,
         firstName: data.firstName,
@@ -369,7 +389,44 @@ export async function saveMemberAction(formData: FormData): Promise<MemberAction
     return { error: "Impossible d’enregistrer le membre. Réessayez." };
   }
 
+  if (!created) {
+    return { error: "Impossible d’enregistrer le membre. Réessayez." };
+  }
+
   await audit("member.create", `${data.lastName} ${data.firstName}`);
+
+  if (createAccount && accountPhone) {
+    const { DEFAULT_TEMP_PASSWORD } = await import("@/lib/auth/constants");
+    const now = new Date().toISOString();
+    const member = created as Member;
+    const user: User = {
+      id: newId("USR"),
+      phone: accountPhone,
+      passwordHash: await bcrypt.hash(DEFAULT_TEMP_PASSWORD, 10),
+      name: `${member.lastName} ${member.firstName}`.trim(),
+      role: "MEMBRE",
+      memberId: member.id,
+      active: true,
+      email: member.email?.trim() ? member.email.trim().toLowerCase() : null,
+      mustChangePassword: true,
+      twoFactorEnabled: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    try {
+      await usersRepo.update((items) => [...items, user]);
+      await audit("user.create", `${user.phone} (MEMBRE, auto)`);
+      revalidatePath("/admin/utilisateurs");
+    } catch (e) {
+      console.error("saveMemberAction createAccount", e);
+      revalidatePath("/gestion/membres");
+      return {
+        error:
+          "Membre créé, mais le compte n’a pas pu être créé (conflit possible). Créez le compte depuis Comptes & rôles.",
+      };
+    }
+  }
+
   revalidatePath("/gestion/membres");
   return { ok: true };
 }

@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { Mail, ShieldCheck, UserCog, Users } from "lucide-react";
+import { ShieldCheck, UserCog, Users } from "lucide-react";
 import { globalMembersRepo, usersRepo } from "@/lib/db/collections";
 import { memberDisplayName } from "@/lib/db/domain";
 import { DEFAULT_TEMP_PASSWORD } from "@/lib/auth/constants";
 import { CreateUserModal } from "@/components/create-user-modal";
-import { UserAccountActions } from "@/components/user-account-actions";
+import { UserAccountCard } from "@/components/user-account-actions";
 
 const FILTERS = [
   { key: "all", label: "Tous" },
@@ -132,60 +132,21 @@ export default async function UtilisateursPage({
                 ? members.find((m) => m.id === u.memberId)
                 : undefined;
               return (
-                <article
+                <UserAccountCard
                   key={u.id}
-                  className="flex flex-col rounded-2xl border border-[var(--line)] bg-[var(--cream)]/30 p-4 transition hover:border-[#FFCD79] hover:bg-white"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-[var(--navy)]">{u.name}</p>
-                      <p className="mt-0.5 font-mono text-xs text-[var(--muted)]">{u.phone}</p>
-                    </div>
-                    <RoleBadge role={u.role} />
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {!u.active && (
-                      <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-red-700">
-                        Inactif
-                      </span>
-                    )}
-                    {u.mustChangePassword && (
-                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-900">
-                        MDP temporaire
-                      </span>
-                    )}
-                    {u.email ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] text-[var(--muted)] ring-1 ring-[var(--line)]">
-                        <Mail className="h-3 w-3" />
-                        {u.email}
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-[var(--muted)] ring-1 ring-[var(--line)]">
-                        Pas d’email
-                      </span>
-                    )}
-                  </div>
-
-                  {u.memberId && (
-                    <p className="mt-2 text-xs text-[var(--muted)]">
-                      Lié : {linked ? memberDisplayName(linked) : u.memberId}
-                    </p>
-                  )}
-
-                  <UserAccountActions
-                    user={{
-                      id: u.id,
-                      name: u.name,
-                      phone: u.phone,
-                      email: u.email,
-                      role: u.role,
-                      memberId: u.memberId,
-                      active: u.active,
-                    }}
-                    members={memberOptions}
-                  />
-                </article>
+                  user={{
+                    id: u.id,
+                    name: u.name,
+                    phone: u.phone,
+                    email: u.email,
+                    role: u.role,
+                    memberId: u.memberId,
+                    active: u.active,
+                    mustChangePassword: u.mustChangePassword,
+                  }}
+                  linkedMemberLabel={linked ? memberDisplayName(linked) : u.memberId}
+                  members={memberOptions}
+                />
               );
             })}
           </div>
@@ -228,29 +189,5 @@ function Stat({
         </div>
       </div>
     </div>
-  );
-}
-
-function RoleBadge({ role }: { role: string }) {
-  const styles =
-    role === "SUPER_ADMIN"
-      ? "bg-[#1D2D50] text-[#FFCD79]"
-      : role === "GESTIONNAIRE"
-        ? "bg-[#FFCD79]/35 text-[#1D2D50]"
-        : role === "GESTIONNAIRE_LECTURE"
-          ? "bg-sky-50 text-sky-900"
-          : "bg-white text-[var(--muted)] ring-1 ring-[var(--line)]";
-  const label =
-    role === "SUPER_ADMIN"
-      ? "Super admin"
-      : role === "GESTIONNAIRE"
-        ? "Gestionnaire"
-        : role === "GESTIONNAIRE_LECTURE"
-          ? "Lecture"
-          : "Membre";
-  return (
-    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${styles}`}>
-      {label}
-    </span>
   );
 }

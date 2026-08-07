@@ -1,143 +1,211 @@
-import { redirect } from "next/navigation";
-import { requireRole } from "@/lib/auth/session";
-import { getMemberProgress } from "@/lib/db/domain";
-import { weeksRepo } from "@/lib/db/collections";
+import Link from "next/link";
+import {
+  ArrowRight,
+  Handshake,
+  PiggyBank,
+  Receipt,
+  Scale,
+  Wallet,
+} from "lucide-react";
 import { formatDate, formatFcfa } from "@/lib/format";
-import { Alert, Card, PageHeader, Stat, Table, Td, Th } from "@/components/ui";
+import { loadMembreContext } from "@/lib/membre-page";
+import {
+  MembreAlert,
+  MembreEmpty,
+  MembreHero,
+  MembrePanel,
+  MembreStatCard,
+} from "@/components/membre-ui";
 
-export default async function MembrePage() {
-  const session = await requireRole(["MEMBRE", "SUPER_ADMIN"]);
-  const memberId = session.user.memberId;
+export default async function MembreOverviewPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ tontine?: string }>;
+}) {
+  const sp = (await searchParams) || {};
+  const ctx = await loadMembreContext(sp.tontine);
 
-  if (!memberId) {
+  if (!ctx.memberId) {
     return (
-      <div>
-        <PageHeader title="Ma progression" />
-        <Alert tone="error">
-          Aucun membre n’est lié à ce compte. Contactez le super admin pour associer votre fiche.
-        </Alert>
+      <div className="space-y-6">
+        <h1 className="font-[family-name:var(--font-display)] text-3xl font-bold text-[var(--navy)]">
+          Ma progression
+        </h1>
+        <MembreAlert tone="error">
+          Aucun membre n’est lié à ce compte. Contactez le bureau pour associer votre fiche.
+        </MembreAlert>
       </div>
     );
   }
 
-  const [progress, weeks] = await Promise.all([
-    getMemberProgress(memberId),
-    weeksRepo.all(),
-  ]);
-
-  if (!progress) {
-    redirect("/login");
+  if (!ctx.progress) {
+    return (
+      <div className="space-y-6">
+        <h1 className="font-[family-name:var(--font-display)] text-3xl font-bold text-[var(--navy)]">
+          Ma progression
+        </h1>
+        <MembreAlert tone="error">
+          Fiche membre introuvable dans l’annuaire. Contactez le bureau.
+        </MembreAlert>
+      </div>
+    );
   }
 
-  const weekById = new Map(weeks.map((w) => [w.id, w]));
+  const { progress, periodId } = ctx;
+  const q = periodId ? `?tontine=${encodeURIComponent(periodId)}` : "";
   const pct =
     progress.weeksTotal > 0
       ? Math.round((progress.weeksPaid / progress.weeksTotal) * 100)
       : 0;
 
+  const recentContributions = [...progress.contributions]
+    .sort((a, b) => b.paidAt.localeCompare(a.paidAt))
+    .slice(0, 4);
+  const openLoans = progress.loans.filter((l) => l.status !== "Remboursé").slice(0, 3);
+  const openPenalties = progress.penalties.filter((p) => !p.paid).slice(0, 3);
+
   return (
-    <div>
-      <PageHeader
-        title={`Bonjour ${progress.member.firstName}`}
-        description={`${progress.member.id} · engagement ${formatFcfa(progress.weeklyTarget)} / semaine`}
+    <div className="space-y-8">
+      <MembreHero
+        firstName={progress.member.firstName}
+        memberId={progress.member.id}
+        periodName={progress.periodName}
+        weeklyTarget={progress.weeklyTarget}
+        enrolled={progress.enrolled}
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Total cotisé" value={formatFcfa(progress.totalContributed)} />
-        <Stat label="Semaines payées" value={`${progress.weeksPaid} / ${progress.weeksTotal} (${pct}%)`} />
-        <Stat label="Pénalités dues" value={formatFcfa(progress.penaltiesDue)} />
-        <Stat label="Prêts en cours" value={formatFcfa(progress.loansOutstanding)} />
-      </div>
+      {!progress.enrolled && (
+        <MembreAlert>
+          Vous n’êtes pas encore inscrit à une tontine. Vos cotisations, prêts et pénalités
+          apparaîtront ici une fois l’inscription faite par le bureau.
+        </MembreAlert>
+      )}
 
-      <div className="mt-6 max-w-sm">
-        <Stat label="Solde net estimé" value={formatFcfa(progress.netBalance)} />
-      </div>
+      {progress.enrolled && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MembreStatCard
+              label="Total cotisé"
+              value={formatFcfa(progress.totalContributed)}
+              icon={PiggyBank}
+              tone="navy"
+            />
+            <MembreStatCard
+              label="Séances payées"
+              value={`${progress.weeksPaid} / ${progress.weeksTotal} (${pct}%)`}
+              icon={Scale}
+              tone="sand"
+            />
+            <MembreStatCard
+              label="Pénalités dues"
+              value={formatFcfa(progress.penaltiesDue)}
+              icon={Receipt}
+              tone="amber"
+            />
+            <MembreStatCard
+              label="Prêts en cours"
+              value={formatFcfa(progress.loansOutstanding)}
+              icon={Handshake}
+              tone="emerald"
+            />
+          </div>
 
-      <div className="mt-10 grid gap-8 lg:grid-cols-2">
-        <Card>
-          <h2 className="font-[family-name:var(--font-display)] text-xl">Mes cotisations</h2>
-          <Table>
-            <thead>
-              <tr>
-                <Th>Semaine</Th>
-                <Th>Montant</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {progress.contributions.map((c) => (
-                <tr key={c.id}>
-                  <Td>{formatDate(weekById.get(c.weekId)?.date || c.paidAt)}</Td>
-                  <Td>{formatFcfa(c.amount)}</Td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-          {progress.missingWeeks.length > 0 && (
-            <p className="mt-3 text-sm text-[var(--muted)]">
-              Semaines sans saisie : {progress.missingWeeks.slice(0, 8).join(", ")}
-              {progress.missingWeeks.length > 8 ? "…" : ""}
-            </p>
-          )}
-        </Card>
+          <div className="max-w-sm">
+            <MembreStatCard
+              label="Solde net estimé"
+              value={formatFcfa(progress.netBalance)}
+              icon={Wallet}
+              tone="navy"
+            />
+          </div>
 
-        <div className="space-y-8">
-          <Card>
-            <h2 className="font-[family-name:var(--font-display)] text-xl">Mes prêts</h2>
-            {progress.loans.length === 0 ? (
-              <p className="mt-2 text-sm text-[var(--muted)]">Aucun prêt.</p>
-            ) : (
-              <Table>
-                <thead>
-                  <tr>
-                    <Th>ID</Th>
-                    <Th>Montant</Th>
-                    <Th>Remboursé</Th>
-                    <Th>Statut</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {progress.loans.map((l) => (
-                    <tr key={l.id}>
-                      <Td className="font-mono text-xs">{l.id}</Td>
-                      <Td>{formatFcfa(l.amount)}</Td>
-                      <Td>{formatFcfa(l.repaid)}</Td>
-                      <Td>{l.status}</Td>
-                    </tr>
+          <div className="grid gap-5 lg:grid-cols-3">
+            <MembrePanel
+              title="Cotisations récentes"
+              description="Derniers versements"
+              action={
+                <Link
+                  href={`/membre/cotisations${q}`}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--sand)] hover:text-[var(--navy)]"
+                >
+                  Tout voir <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              }
+            >
+              {recentContributions.length === 0 ? (
+                <MembreEmpty>Aucune cotisation pour le moment.</MembreEmpty>
+              ) : (
+                <ul className="divide-y divide-[var(--line)]">
+                  {recentContributions.map((c) => (
+                    <li key={c.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                      <span className="text-[var(--muted)]">{formatDate(c.paidAt)}</span>
+                      <span className="font-semibold text-[var(--navy)]">
+                        {formatFcfa(c.amount)}
+                      </span>
+                    </li>
                   ))}
-                </tbody>
-              </Table>
-            )}
-          </Card>
+                </ul>
+              )}
+            </MembrePanel>
 
-          <Card>
-            <h2 className="font-[family-name:var(--font-display)] text-xl">Mes pénalités</h2>
-            {progress.penalties.length === 0 ? (
-              <p className="mt-2 text-sm text-[var(--muted)]">Aucune pénalité.</p>
-            ) : (
-              <Table>
-                <thead>
-                  <tr>
-                    <Th>Date</Th>
-                    <Th>Motif</Th>
-                    <Th>Montant</Th>
-                    <Th>Payé</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {progress.penalties.map((p) => (
-                    <tr key={p.id}>
-                      <Td>{formatDate(p.date)}</Td>
-                      <Td>{p.motifLabel}</Td>
-                      <Td>{formatFcfa(p.amount)}</Td>
-                      <Td>{p.paid ? "Oui" : "Non"}</Td>
-                    </tr>
+            <MembrePanel
+              title="Prêts ouverts"
+              description="En cours ou en retard"
+              action={
+                <Link
+                  href={`/membre/prets${q}`}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--sand)] hover:text-[var(--navy)]"
+                >
+                  Tout voir <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              }
+            >
+              {openLoans.length === 0 ? (
+                <MembreEmpty>Aucun prêt ouvert.</MembreEmpty>
+              ) : (
+                <ul className="divide-y divide-[var(--line)]">
+                  {openLoans.map((l) => (
+                    <li key={l.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                      <span className="font-mono text-xs text-[var(--muted)]">{l.id}</span>
+                      <span className="font-semibold text-[var(--navy)]">
+                        {formatFcfa(l.amount)}
+                      </span>
+                    </li>
                   ))}
-                </tbody>
-              </Table>
-            )}
-          </Card>
-        </div>
-      </div>
+                </ul>
+              )}
+            </MembrePanel>
+
+            <MembrePanel
+              title="Pénalités ouvertes"
+              description="À régler"
+              action={
+                <Link
+                  href={`/membre/penalites${q}`}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-[var(--sand)] hover:text-[var(--navy)]"
+                >
+                  Tout voir <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              }
+            >
+              {openPenalties.length === 0 ? (
+                <MembreEmpty>Aucune pénalité ouverte.</MembreEmpty>
+              ) : (
+                <ul className="divide-y divide-[var(--line)]">
+                  {openPenalties.map((p) => (
+                    <li key={p.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                      <span className="truncate text-[var(--muted)]">{p.motifLabel}</span>
+                      <span className="shrink-0 font-semibold text-[var(--navy)]">
+                        {formatFcfa(p.amount)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </MembrePanel>
+          </div>
+        </>
+      )}
     </div>
   );
 }

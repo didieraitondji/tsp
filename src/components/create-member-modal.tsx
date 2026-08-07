@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { UserPlus } from "lucide-react";
 import { saveMemberAction } from "@/app/actions";
+import { DEFAULT_TEMP_PASSWORD } from "@/lib/auth/constants";
 import { Modal } from "@/components/modal";
 import { SubmitButton } from "@/components/submit-button";
 import { Input, Label, Select } from "@/components/ui";
@@ -17,6 +18,7 @@ export function CreateMemberModal({
 }) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createAccount, setCreateAccount] = useState(true);
 
   return (
     <>
@@ -24,6 +26,7 @@ export function CreateMemberModal({
         type="button"
         onClick={() => {
           setError(null);
+          setCreateAccount(true);
           setOpen(true);
         }}
         className={
@@ -39,12 +42,13 @@ export function CreateMemberModal({
         open={open}
         onClose={() => setOpen(false)}
         title="Nouveau membre"
-        description="Ajoute uniquement à l’annuaire global. Vous pourrez l’inscrire à une tontine ensuite."
+        description="Ajoute à l’annuaire global. Vous pourrez l’inscrire à une tontine ensuite."
         wide
       >
         <form
           action={async (fd) => {
             setError(null);
+            if (createAccount) fd.set("createAccount", "true");
             const result = await saveMemberAction(fd);
             if (result?.error) {
               setError(result.error);
@@ -65,8 +69,8 @@ export function CreateMemberModal({
             </div>
           </div>
           <div>
-            <Label>Téléphone</Label>
-            <PhoneInput name="phone" showIcon={false} />
+            <Label>Téléphone{createAccount ? "" : " (optionnel)"}</Label>
+            <PhoneInput name="phone" required={createAccount} showIcon={false} />
             <p className="mt-1 text-xs text-[var(--muted)]">+229 · 10 chiffres</p>
           </div>
           <div>
@@ -81,6 +85,28 @@ export function CreateMemberModal({
               <option value="F">F</option>
             </Select>
           </div>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--cream)]/40 px-3.5 py-3 transition hover:border-[#FFCD79]">
+            <input
+              type="checkbox"
+              checked={createAccount}
+              onChange={(e) => setCreateAccount(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-[var(--line)] accent-[#1D2D50]"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-[var(--navy)]">
+                Créer aussi le compte membre
+              </span>
+              <span className="mt-0.5 block text-[11px] leading-relaxed text-[var(--muted)]">
+                Accès espace membre · MDP temporaire{" "}
+                <span className="font-mono font-semibold text-[var(--navy)]">
+                  {DEFAULT_TEMP_PASSWORD}
+                </span>{" "}
+                (changement à la 1ʳᵉ connexion).
+              </span>
+            </span>
+          </label>
+
           {error && (
             <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
               {error}
@@ -95,7 +121,7 @@ export function CreateMemberModal({
               Annuler
             </button>
             <SubmitButton className="!rounded-full" pendingLabel="Création…">
-              Créer dans l’annuaire
+              Créer
             </SubmitButton>
           </div>
         </form>
