@@ -2,7 +2,6 @@
 
 import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -17,7 +16,6 @@ import { PasswordInput } from "@/components/password-input";
 import { PhoneInput } from "@/components/phone-input";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -36,8 +34,8 @@ export default function LoginPage() {
       setError("Numéro ou mot de passe incorrect.");
       return;
     }
-    router.refresh();
-    router.push("/login/redirect");
+    // Remplace /login dans l’historique : le bouton retour ne revient pas ici.
+    window.location.replace("/login/redirect");
   }
 
   return (

@@ -1,7 +1,6 @@
 "use client";
 
 import { useActionState, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { KeyRound } from "lucide-react";
 import { completePasswordSetupAction, type AuthFlowState } from "@/app/auth-actions";
@@ -13,7 +12,6 @@ export function SetupPasswordForm({
 }: {
   initialEmail?: string | null;
 }) {
-  const router = useRouter();
   const { update } = useSession();
   const [email, setEmail] = useState(initialEmail || "");
 
@@ -29,10 +27,10 @@ export function SetupPasswordForm({
         mustChangePassword: false,
         ...(email.trim() ? { email: email.trim().toLowerCase() } : {}),
       });
-      router.refresh();
-      router.push("/login/redirect");
+      // Remplace setup-password dans l’historique.
+      window.location.replace("/login/redirect");
     })();
-  }, [state?.ok, email, router, update]);
+  }, [state?.ok, email, update]);
 
   return (
     <div className="mx-auto w-full max-w-md space-y-6">
