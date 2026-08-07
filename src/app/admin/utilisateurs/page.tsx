@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { Mail, ShieldCheck, UserCog, Users } from "lucide-react";
 import { globalMembersRepo, usersRepo } from "@/lib/db/collections";
-import { updateUserAction } from "@/app/actions";
 import { memberDisplayName } from "@/lib/db/domain";
 import { DEFAULT_TEMP_PASSWORD } from "@/lib/auth/constants";
 import { CreateUserModal } from "@/components/create-user-modal";
-import { Button, Select } from "@/components/ui";
+import { UserAccountActions } from "@/components/user-account-actions";
 
 const FILTERS = [
   { key: "all", label: "Tous" },
@@ -174,49 +173,18 @@ export default async function UtilisateursPage({
                     </p>
                   )}
 
-                  <div className="mt-auto space-y-2 border-t border-[var(--line)] pt-3">
-                    <form action={updateUserAction} className="space-y-2">
-                      <input type="hidden" name="id" value={u.id} />
-                      <Select name="role" defaultValue={u.role} className="!rounded-xl !py-2 text-xs">
-                        <option value="SUPER_ADMIN">Super admin</option>
-                        <option value="GESTIONNAIRE">Gestionnaire</option>
-                        <option value="GESTIONNAIRE_LECTURE">Gestionnaire lecture</option>
-                        <option value="MEMBRE">Membre</option>
-                      </Select>
-                      <Select
-                        name="memberId"
-                        defaultValue={u.memberId || ""}
-                        className="!rounded-xl !py-2 text-xs"
-                      >
-                        <option value="">Membre lié —</option>
-                        {members.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {memberDisplayName(m)}
-                          </option>
-                        ))}
-                      </Select>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="submit"
-                          variant="secondary"
-                          className="!rounded-full !px-3 !py-1.5 text-xs"
-                        >
-                          Enregistrer
-                        </Button>
-                      </div>
-                    </form>
-                    <form action={updateUserAction}>
-                      <input type="hidden" name="id" value={u.id} />
-                      <input type="hidden" name="active" value={u.active ? "false" : "true"} />
-                      <Button
-                        type="submit"
-                        variant={u.active ? "danger" : "secondary"}
-                        className="!w-full !rounded-full !px-3 !py-1.5 text-xs"
-                      >
-                        {u.active ? "Désactiver" : "Réactiver"}
-                      </Button>
-                    </form>
-                  </div>
+                  <UserAccountActions
+                    user={{
+                      id: u.id,
+                      name: u.name,
+                      phone: u.phone,
+                      email: u.email,
+                      role: u.role,
+                      memberId: u.memberId,
+                      active: u.active,
+                    }}
+                    members={memberOptions}
+                  />
                 </article>
               );
             })}

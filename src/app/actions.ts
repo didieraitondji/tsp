@@ -116,7 +116,9 @@ export async function createUserAction(formData: FormData) {
   return;
 }
 
-export async function updateUserAction(formData: FormData) {
+export type UserActionState = { error?: string; ok?: boolean } | null;
+
+export async function updateUserAction(formData: FormData): Promise<UserActionState> {
   await requireRole(["SUPER_ADMIN"]);
   const parsed = updateUserSchema.safeParse({
     id: formData.get("id"),
@@ -126,41 +128,104 @@ export async function updateUserAction(formData: FormData) {
     role: formData.get("role") || undefined,
     memberId: formData.has("memberId") ? formData.get("memberId") || null : undefined,
     active: formData.has("active") ? formData.get("active") === "true" : undefined,
+    email: formData.has("email") ? String(formData.get("email") || "") : undefined,
   });
-  if (!parsed.success) return;
+  if (!parsed.success) return { error: "Données invalides." };
 
   const data = parsed.data;
   const phone = data.phone ? normalizePhone(data.phone) : undefined;
-  if (data.phone && !phone) return;
+  if (data.phone && !phone) return { error: "Téléphone invalide." };
+
+  let conflict = false;
+  let notFound = false;
   await usersRepo.update(async (items) => {
     if (phone && items.some((u) => u.id !== data.id && phonesMatch(u.phone, phone))) {
+      conflict = true;
       return items;
     }
     const idx = items.findIndex((u) => u.id === data.id);
-    if (idx < 0) return items;
+    if (idx < 0) {
+      notFound = true;
+      return items;
+    }
     const current = items[idx];
+    const nextRole = data.role ?? current.role;
+    const email =
+      data.email !== undefined
+        ? data.email.trim()
+          ? data.email.trim().toLowerCase()
+          : null
+        : current.email;
     const next: User = {
       ...current,
       phone: phone ?? current.phone,
       name: data.name ?? current.name,
-      role: data.role ?? current.role,
+      role: nextRole,
       memberId:
-        (data.role ?? current.role) === "MEMBRE"
-          ? (data.memberId !== undefined ? data.memberId : current.memberId)
+        nextRole === "MEMBRE"
+          ? data.memberId !== undefined
+            ? data.memberId
+            : current.memberId
           : null,
       active: data.active ?? current.active,
+      email,
       passwordHash: data.password
         ? await bcrypt.hash(data.password, 10)
         : current.passwordHash,
+      ...(data.password
+        ? { mustChangePassword: true }
+        : {}),
       updatedAt: new Date().toISOString(),
     };
     const copy = [...items];
     copy[idx] = next;
     return copy;
   });
+  if (conflict) return { error: "Ce numéro est déjà utilisé." };
+  if (notFound) return { error: "Compte introuvable." };
   await audit("user.update", data.id);
   revalidatePath("/admin/utilisateurs");
-  return;
+  return { ok: true };
+}
+
+export async function deleteUserAction(formData: FormData): Promise<UserActionState> {
+  await requireRole(["SUPER_ADMIN"]);
+  const id = String(formData.get("id") || "").trim();
+  if (!id) return { error: "Compte manquant." };
+
+  const session = await requireSession();
+  if (session.user.id === id) {
+    return { error: "Vous ne pouvez pas supprimer votre propre compte." };
+  }
+
+  let blockedLastAdmin = false;
+  let notFound = false;
+  await usersRepo.update((items) => {
+    const target = items.find((u) => u.id === id);
+    if (!target) {
+      notFound = true;
+      return items;
+    }
+    if (target.role === "SUPER_ADMIN") {
+      const otherAdmins = items.filter(
+        (u) => u.id !== id && u.role === "SUPER_ADMIN" && u.active
+      );
+      if (otherAdmins.length === 0) {
+        blockedLastAdmin = true;
+        return items;
+      }
+    }
+    return items.filter((u) => u.id !== id);
+  });
+
+  if (notFound) return { error: "Compte introuvable." };
+  if (blockedLastAdmin) {
+    return { error: "Impossible de supprimer le dernier super admin actif." };
+  }
+
+  await audit("user.delete", id);
+  revalidatePath("/admin/utilisateurs");
+  return { ok: true };
 }
 
 export type SaveSettingsState = { error?: string; ok?: boolean } | null;

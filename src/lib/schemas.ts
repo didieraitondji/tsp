@@ -63,6 +63,7 @@ export const updateUserSchema = z.object({
   role: roleSchema.optional(),
   memberId: z.string().optional().nullable(),
   active: z.boolean().optional(),
+  email: z.string().email().optional().or(z.literal("")),
 });
 
 export const memberSchema = z.object({
