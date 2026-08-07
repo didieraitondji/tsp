@@ -73,21 +73,28 @@ export function CreateUserModal({
               <option value="SUPER_ADMIN">Super admin</option>
             </Select>
           </div>
-          {role === "MEMBRE" && (
-            <div>
-              <Label>Membre lié</Label>
-              <Select name="memberId" required defaultValue="">
-                <option value="" disabled>
-                  Choisir…
+          <div>
+            <Label>Membre lié{role === "MEMBRE" ? "" : " (optionnel)"}</Label>
+            <Select
+              name="memberId"
+              required={role === "MEMBRE"}
+              defaultValue=""
+            >
+              <option value="" disabled={role === "MEMBRE"}>
+                {role === "MEMBRE" ? "Choisir…" : "Aucun"}
+              </option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
                 </option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
+              ))}
+            </Select>
+            {members.length === 0 && (
+              <p className="mt-1 text-[11px] text-amber-800">
+                Aucun membre dans l’annuaire — créez-en un dans Gestion → Membres.
+              </p>
+            )}
+          </div>
           <p className="rounded-xl bg-[var(--cream)]/60 px-3 py-2.5 text-[11px] leading-relaxed text-[var(--muted)]">
             MDP initial{" "}
             <span className="font-mono font-semibold text-[var(--navy)]">{DEFAULT_TEMP_PASSWORD}</span>{" "}

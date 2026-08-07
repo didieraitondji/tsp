@@ -83,6 +83,7 @@ export async function createUserAction(formData: FormData) {
   if (!parsed.success) return;
 
   const data = parsed.data;
+  if (data.role === "MEMBRE" && !data.memberId) return;
   const phone = normalizePhone(data.phone);
   if (!phone) return;
   const users = await usersRepo.all();
@@ -101,7 +102,7 @@ export async function createUserAction(formData: FormData) {
     passwordHash: await bcrypt.hash(tempPassword, 10),
     name: data.name,
     role: data.role,
-    memberId: data.role === "MEMBRE" ? data.memberId : null,
+    memberId: data.memberId || null,
     active: data.active,
     email,
     mustChangePassword: true,
@@ -133,6 +134,9 @@ export async function updateUserAction(formData: FormData): Promise<UserActionSt
   if (!parsed.success) return { error: "Données invalides." };
 
   const data = parsed.data;
+  if ((data.role ?? undefined) === "MEMBRE" && data.memberId !== undefined && !data.memberId) {
+    return { error: "Un compte Membre doit être lié à un membre de l’annuaire." };
+  }
   const phone = data.phone ? normalizePhone(data.phone) : undefined;
   if (data.phone && !phone) return { error: "Téléphone invalide." };
 
@@ -162,11 +166,9 @@ export async function updateUserAction(formData: FormData): Promise<UserActionSt
       name: data.name ?? current.name,
       role: nextRole,
       memberId:
-        nextRole === "MEMBRE"
-          ? data.memberId !== undefined
-            ? data.memberId
-            : current.memberId
-          : null,
+        data.memberId !== undefined
+          ? data.memberId || null
+          : current.memberId,
       active: data.active ?? current.active,
       email,
       passwordHash: data.password

@@ -133,21 +133,28 @@ export function UserAccountActions({
               <option value="SUPER_ADMIN">Super admin</option>
             </Select>
           </div>
-          {role === "MEMBRE" && (
-            <div>
-              <Label>Membre lié</Label>
-              <Select name="memberId" required defaultValue={user.memberId || ""}>
-                <option value="" disabled>
-                  Choisir…
+          <div>
+            <Label>Membre lié{role === "MEMBRE" ? "" : " (optionnel)"}</Label>
+            <Select
+              name="memberId"
+              required={role === "MEMBRE"}
+              defaultValue={user.memberId || ""}
+            >
+              <option value="" disabled={role === "MEMBRE"}>
+                {role === "MEMBRE" ? "Choisir…" : "Aucun"}
+              </option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
                 </option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
+              ))}
+            </Select>
+            {members.length === 0 && (
+              <p className="mt-1 text-[11px] text-amber-800">
+                Aucun membre dans l’annuaire — créez-en un dans Gestion → Membres.
+              </p>
+            )}
+          </div>
           <div>
             <Label>Réinitialiser le mot de passe (optionnel)</Label>
             <PasswordInput
