@@ -346,7 +346,8 @@ export function MembreShell({
             onClick={async () => {
               setLoggingOut(true);
               try {
-                await signOut({ callbackUrl: "/" });
+                await signOut({ redirect: false });
+                window.location.assign("/login");
               } finally {
                 setLoggingOut(false);
               }

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Modal } from "@/components/modal";
 
 export type AppShellNavItem = {
   href: string;
@@ -101,6 +102,8 @@ export function AppShell({
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
@@ -360,7 +363,10 @@ export function AppShell({
                       type="button"
                       role="menuitem"
                       className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm text-red-700 transition hover:bg-red-50"
-                      onClick={() => signOut({ callbackUrl: "/" })}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setLogoutOpen(true);
+                      }}
                     >
                       <LogOut className="h-4 w-4" strokeWidth={1.75} />
                       Déconnexion
@@ -375,6 +381,44 @@ export function AppShell({
 
         <main className="flex-1 px-4 py-8 md:px-8 md:py-10">{children}</main>
       </div>
+
+      <Modal
+        open={logoutOpen}
+        onClose={() => !loggingOut && setLogoutOpen(false)}
+        title="Se déconnecter"
+        description="Vous quitterez votre session en cours."
+      >
+        <p className="text-sm text-[var(--muted)]">
+          Confirmer la déconnexion de{" "}
+          <strong className="text-[var(--navy)]">{userName}</strong> ?
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            disabled={loggingOut}
+            onClick={() => setLogoutOpen(false)}
+            className="cursor-pointer rounded-full border border-[var(--line)] px-4 py-2 text-sm font-medium text-[var(--navy)] transition hover:bg-[var(--cream)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            disabled={loggingOut}
+            onClick={async () => {
+              setLoggingOut(true);
+              try {
+                await signOut({ redirect: false });
+                window.location.assign("/login");
+              } finally {
+                setLoggingOut(false);
+              }
+            }}
+            className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-red-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-800 disabled:cursor-wait disabled:opacity-60"
+          >
+            {loggingOut ? "Déconnexion…" : "Se déconnecter"}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }
