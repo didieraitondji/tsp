@@ -135,6 +135,29 @@ body {
   animation: tsp-line 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
 }
 
+@keyframes tsp-nav-bar {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+@keyframes tsp-nav-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tsp-nav-bar {
+  animation: tsp-nav-bar 1.05s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.tsp-nav-spin {
+  animation: tsp-nav-spin 0.75s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tsp-rise,
   .tsp-rise-delay-1,
@@ -142,7 +165,9 @@ body {
   .tsp-rise-delay-3,
   .tsp-fade,
   .tsp-drift,
-  .tsp-accent-line {
+  .tsp-accent-line,
+  .tsp-nav-bar,
+  .tsp-nav-spin {
     animation: none;
   }
 

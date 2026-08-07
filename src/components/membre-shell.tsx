@@ -18,6 +18,7 @@ import {
 import { signOut } from "next-auth/react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Modal } from "@/components/modal";
+import { beginPageTransition } from "@/components/navigation-progress";
 
 export type MembreTontineOption = {
   id: string;
@@ -112,6 +113,7 @@ export function MembreShell({
   }, [menuOpen]);
 
   function onTontineChange(next: string) {
+    beginPageTransition();
     const params = new URLSearchParams(searchParams.toString());
     if (next) params.set("tontine", next);
     else params.delete("tontine");

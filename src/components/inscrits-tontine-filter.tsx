@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { beginPageTransition } from "@/components/navigation-progress";
 
 type TontineOption = {
   id: string;
@@ -24,6 +25,7 @@ export function InscritsTontineFilter({
         value={value}
         onChange={(e) => {
           const next = e.target.value;
+          beginPageTransition();
           const params = new URLSearchParams();
           params.set("view", "inscrits");
           if (next) params.set("tontine", next);
