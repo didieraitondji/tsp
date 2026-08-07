@@ -4,7 +4,7 @@ import { globalMembersRepo, usersRepo } from "@/lib/db/collections";
 import { memberDisplayName } from "@/lib/db/domain";
 import { DEFAULT_TEMP_PASSWORD } from "@/lib/auth/constants";
 import { CreateUserModal } from "@/components/create-user-modal";
-import { UserAccountCard } from "@/components/user-account-actions";
+import { UsersAccountsBrowser } from "@/components/users-accounts-browser";
 
 const FILTERS = [
   { key: "all", label: "Tous" },
@@ -45,6 +45,21 @@ export default async function UtilisateursPage({
     id: m.id,
     label: `${m.id} — ${memberDisplayName(m)}`,
   }));
+
+  const cards = sorted.map((u) => {
+    const linked = u.memberId ? members.find((m) => m.id === u.memberId) : undefined;
+    return {
+      id: u.id,
+      name: u.name,
+      phone: u.phone,
+      email: u.email,
+      role: u.role,
+      memberId: u.memberId,
+      active: u.active,
+      mustChangePassword: u.mustChangePassword,
+      linkedMemberLabel: linked ? memberDisplayName(linked) : u.memberId,
+    };
+  });
 
   return (
     <div className="-mx-4 px-4 md:-mx-8 md:px-[100px]">
@@ -123,34 +138,7 @@ export default async function UtilisateursPage({
           </div>
         </div>
 
-        {sorted.length === 0 ? (
-          <p className="px-6 py-14 text-center text-sm text-[var(--muted)]">Aucun compte.</p>
-        ) : (
-          <div className="grid gap-4 p-5 sm:grid-cols-2 xl:grid-cols-3">
-            {sorted.map((u) => {
-              const linked = u.memberId
-                ? members.find((m) => m.id === u.memberId)
-                : undefined;
-              return (
-                <UserAccountCard
-                  key={u.id}
-                  user={{
-                    id: u.id,
-                    name: u.name,
-                    phone: u.phone,
-                    email: u.email,
-                    role: u.role,
-                    memberId: u.memberId,
-                    active: u.active,
-                    mustChangePassword: u.mustChangePassword,
-                  }}
-                  linkedMemberLabel={linked ? memberDisplayName(linked) : u.memberId}
-                  members={memberOptions}
-                />
-              );
-            })}
-          </div>
-        )}
+        <UsersAccountsBrowser users={cards} members={memberOptions} />
       </section>
     </div>
   );
