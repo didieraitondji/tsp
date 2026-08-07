@@ -18,8 +18,8 @@ import { requireGestionAccess } from "@/lib/auth/session";
 import type { Enrollment, Member, MemberStatus } from "@/lib/types";
 
 function initials(lastName: string, firstName: string): string {
-  const a = lastName.trim()[0] || "";
-  const b = firstName.trim()[0] || "";
+  const a = (lastName || "").trim()[0] || "";
+  const b = (firstName || "").trim()[0] || "";
   return `${a}${b}`.toUpperCase() || "?";
 }
 

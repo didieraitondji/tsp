@@ -63,7 +63,8 @@ export function MemberRowActions({
       >
         <form
           action={async (fd) => {
-            await saveMemberAction(fd);
+            const result = await saveMemberAction(fd);
+            if (result?.error) return;
             setEditOpen(false);
           }}
           className="space-y-3.5"

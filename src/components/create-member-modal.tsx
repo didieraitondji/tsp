@@ -16,12 +16,16 @@ export function CreateMemberModal({
   triggerLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setError(null);
+          setOpen(true);
+        }}
         className={
           triggerClassName ??
           "inline-flex cursor-pointer items-center gap-2 rounded-full bg-[#1D2D50] px-4 py-2.5 text-sm font-semibold text-[#FFCD79] transition hover:bg-[#152238]"
@@ -40,7 +44,12 @@ export function CreateMemberModal({
       >
         <form
           action={async (fd) => {
-            await saveMemberAction(fd);
+            setError(null);
+            const result = await saveMemberAction(fd);
+            if (result?.error) {
+              setError(result.error);
+              return;
+            }
             setOpen(false);
           }}
           className="space-y-3.5"
@@ -72,6 +81,11 @@ export function CreateMemberModal({
               <option value="F">F</option>
             </Select>
           </div>
+          {error && (
+            <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+              {error}
+            </p>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"

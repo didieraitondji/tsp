@@ -274,7 +274,23 @@ export async function saveSettingsAction(
   return { ok: true };
 }
 
-export async function saveMemberAction(formData: FormData) {
+export type MemberActionState = { error?: string; ok?: boolean } | null;
+
+function nextSequentialId(
+  existingIds: string[],
+  prefix: string,
+  pad = 3
+): string {
+  let max = 0;
+  for (const id of existingIds) {
+    if (!id.startsWith(prefix)) continue;
+    const n = Number(id.slice(prefix.length));
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return `${prefix}${String(max + 1).padStart(pad, "0")}`;
+}
+
+export async function saveMemberAction(formData: FormData): Promise<MemberActionState> {
   await requireRole(["SUPER_ADMIN", "GESTIONNAIRE"]);
 
   const parsed = memberSchema.safeParse({
@@ -294,7 +310,10 @@ export async function saveMemberAction(formData: FormData) {
     origin: formData.get("origin") || undefined,
     emergencyContact: formData.get("emergencyContact") || undefined,
   });
-  if (!parsed.success) return;
+  if (!parsed.success) {
+    const msg = parsed.error.issues[0]?.message;
+    return { error: msg || "Données invalides." };
+  }
 
   const data = parsed.data;
 
@@ -314,35 +333,43 @@ export async function saveMemberAction(formData: FormData) {
     );
     await audit("member.update", `${data.lastName} ${data.firstName}`);
     revalidatePath("/gestion/membres");
-    return;
+    return { ok: true };
   }
 
   const year = new Date().getFullYear();
-  await globalMembersRepo.update((items) => {
-    const seq = String(items.length + 1).padStart(3, "0");
-    const created: Member = {
-      id: `TSP-${year}-${seq}`,
-      lastName: data.lastName,
-      firstName: data.firstName,
-      phone: data.phone,
-      email: data.email || undefined,
-      sex: data.sex,
-      cip: data.cip,
-      birthDate: data.birthDate,
-      joinedAt: data.joinedAt || new Date().toISOString().slice(0, 10),
-      address: data.address,
-      profession: data.profession,
-      sponsor: data.sponsor,
-      notes: data.notes,
-      origin: data.origin,
-      emergencyContact: data.emergencyContact,
-    };
-    return [...items, created];
-  });
+  try {
+    await globalMembersRepo.update((items) => {
+      const id = nextSequentialId(
+        items.map((m) => m.id),
+        `TSP-${year}-`
+      );
+      const created: Member = {
+        id,
+        lastName: data.lastName,
+        firstName: data.firstName,
+        phone: data.phone,
+        email: data.email || undefined,
+        sex: data.sex,
+        cip: data.cip,
+        birthDate: data.birthDate,
+        joinedAt: data.joinedAt || new Date().toISOString().slice(0, 10),
+        address: data.address,
+        profession: data.profession,
+        sponsor: data.sponsor,
+        notes: data.notes,
+        origin: data.origin,
+        emergencyContact: data.emergencyContact,
+      };
+      return [...items, created];
+    });
+  } catch (e) {
+    console.error("saveMemberAction", e);
+    return { error: "Impossible d’enregistrer le membre. Réessayez." };
+  }
 
   await audit("member.create", `${data.lastName} ${data.firstName}`);
   revalidatePath("/gestion/membres");
-  return;
+  return { ok: true };
 }
 
 /**
@@ -615,10 +642,13 @@ export async function createLoanAction(formData: FormData) {
   const figures = computeLoanFigures(parsed.data.amount, settings);
   const year = settings.year;
   const existing = await readCollectionForPeriodId<Loan>(periodId, "loans");
-  const seq = String(existing.length + 1).padStart(3, "0");
+  const loanId = nextSequentialId(
+    existing.map((l) => l.id),
+    `PRE-${year}-`
+  );
 
   const loan: Loan = {
-    id: `PRE-${year}-${seq}`,
+    id: loanId,
     memberId: parsed.data.memberId,
     date: parsed.data.date,
     amount: parsed.data.amount,
