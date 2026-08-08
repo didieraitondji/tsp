@@ -126,6 +126,12 @@ export const contributionInputSchema = z.object({
   amount: z.number().min(0),
 });
 
+export const markContributionSchema = z.object({
+  memberId: z.string().min(1),
+  weekId: z.string().min(1),
+  status: z.enum(["paid", "unpaid"]),
+});
+
 export const loanInputSchema = z.object({
   memberId: z.string(),
   date: z.string(),

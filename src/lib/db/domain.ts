@@ -28,6 +28,9 @@ import {
   weeksRepo,
 } from "./collections";
 import { DEFAULT_SETTINGS } from "./defaults";
+import {
+  isContributionRecordLocked,
+} from "@/lib/contribution-status";
 import { listPeriods } from "./periods";
 import {
   readCollectionForPeriodId,
@@ -449,12 +452,8 @@ export async function upsertContribution(input: {
     (c) => c.memberId === input.memberId && c.weekId === input.weekId
   );
 
-  if (idx >= 0) {
-    const current = items[idx];
-    const isLocked = current.locked !== false && current.amount > 0;
-    if (isLocked) {
-      throw new Error("Cotisation verrouillée");
-    }
+  if (idx >= 0 && isContributionRecordLocked(items[idx])) {
+    throw new Error("Cotisation verrouillée");
   }
 
   let next: Contribution[];
@@ -492,6 +491,7 @@ export async function upsertContribution(input: {
       paidAt: now,
       recordedBy: input.recordedBy,
       locked: true,
+      status: "paid",
     };
     next = [...items];
     next[idx] = result;
@@ -504,6 +504,7 @@ export async function upsertContribution(input: {
       paidAt: now,
       recordedBy: input.recordedBy,
       locked: true,
+      status: "paid",
     };
     next = [...items, result];
   }
@@ -518,6 +519,115 @@ export async function upsertContribution(input: {
     recordedBy: input.recordedBy,
   });
   return result;
+}
+
+/**
+ * Marque une cotisation Payé (montant = cible) ou Impayé (0 + pénalité).
+ * La pénalité d’impayé est idempotente et n’est jamais retirée si on repasse en Payé.
+ */
+export async function markContributionStatus(input: {
+  periodId: string;
+  memberId: string;
+  weekId: string;
+  status: "paid" | "unpaid";
+  weeklyTarget: number;
+  recordedBy: string;
+  penaltyAmount: number;
+}): Promise<{ contribution: Contribution; penaltyCreated: boolean }> {
+  const meta = await readMeta();
+  const period = meta.periods.find((p) => p.id === input.periodId);
+  if (!period) throw new Error("Tontine introuvable");
+
+  if (input.status === "paid" && !(input.weeklyTarget > 0)) {
+    throw new Error("Cible de cotisation invalide.");
+  }
+
+  const now = new Date().toISOString();
+  const [items, weeks, penalties] = await Promise.all([
+    readCollectionForPeriodId<Contribution>(input.periodId, "contributions"),
+    readCollectionForPeriodId<{ id: string; date: string }>(input.periodId, "weeks"),
+    readCollectionForPeriodId<Penalty>(input.periodId, "penalties"),
+  ]);
+
+  const week = weeks.find((w) => w.id === input.weekId);
+  if (!week) throw new Error("Séance introuvable");
+  const cashDate = week.date || now.slice(0, 10);
+
+  const idx = items.findIndex(
+    (c) => c.memberId === input.memberId && c.weekId === input.weekId
+  );
+  if (idx >= 0 && isContributionRecordLocked(items[idx])) {
+    throw new Error("Cotisation verrouillée");
+  }
+
+  const amount = input.status === "paid" ? input.weeklyTarget : 0;
+  let result: Contribution;
+  let next: Contribution[];
+
+  if (idx >= 0) {
+    result = {
+      ...items[idx],
+      amount,
+      paidAt: now,
+      recordedBy: input.recordedBy,
+      locked: true,
+      status: input.status,
+    };
+    next = [...items];
+    next[idx] = result;
+  } else {
+    result = {
+      id: newId("COT"),
+      memberId: input.memberId,
+      weekId: input.weekId,
+      amount,
+      paidAt: now,
+      recordedBy: input.recordedBy,
+      locked: true,
+      status: input.status,
+    };
+    next = [...items, result];
+  }
+
+  await writeCollectionForPeriod(period, "contributions", next);
+  await syncContributionCashEntry({
+    period,
+    contributionId: result.id,
+    amount: result.amount,
+    date: cashDate,
+    description: `Cotisation ${result.id}`,
+    recordedBy: input.recordedBy,
+  });
+
+  let penaltyCreated = false;
+  if (input.status === "unpaid" && input.penaltyAmount > 0) {
+    const already = penalties.some(
+      (p) =>
+        p.memberId === input.memberId &&
+        p.weekId === input.weekId &&
+        p.motif === "retard_cotisation"
+    );
+    if (!already) {
+      const penalty: Penalty = {
+        id: newId("PEN"),
+        memberId: input.memberId,
+        date: cashDate,
+        motif: "retard_cotisation",
+        motifLabel: "Cotisation impayée",
+        amount: input.penaltyAmount,
+        paid: false,
+        paidAt: null,
+        weekId: input.weekId,
+        notes: `Pénalité auto — marqué impayé pour la séance du ${cashDate}`,
+        recordedBy: input.recordedBy,
+        createdAt: now,
+      };
+      await writeCollectionForPeriod(period, "penalties", [...penalties, penalty]);
+      penaltyCreated = true;
+    }
+  }
+
+  return { contribution: result, penaltyCreated };
 }
 
 export async function unlockContribution(input: {

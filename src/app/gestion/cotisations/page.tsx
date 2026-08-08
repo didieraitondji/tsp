@@ -2,15 +2,17 @@ import { AddWeekModal } from "@/components/add-week-modal";
 import { CotisationsTontineFilter } from "@/components/cotisations-tontine-filter";
 import { ContributionsGrid } from "@/components/contributions-grid";
 import { listEnrolledForPeriod } from "@/lib/db/collections";
+import { DEFAULT_SETTINGS } from "@/lib/db/defaults";
 import { listPeriods } from "@/lib/db/periods";
 import { generateWeeks } from "@/lib/periodicity";
 import {
   readCollectionForPeriodId,
+  readObjectForPeriodId,
   writeCollectionForPeriod,
 } from "@/lib/db/store";
 import { canWriteGestion } from "@/lib/auth/permissions";
 import { requireGestionAccess } from "@/lib/auth/session";
-import type { Contribution, Week } from "@/lib/types";
+import type { Contribution, Settings, Week } from "@/lib/types";
 
 export default async function CotisationsPage({
   searchParams,
@@ -27,6 +29,7 @@ export default async function CotisationsPage({
   let weeks: Week[] = [];
   let contributions: Contribution[] = [];
   let members: Awaited<ReturnType<typeof listEnrolledForPeriod>> = [];
+  let settings: Settings = DEFAULT_SETTINGS;
 
   if (period) {
     weeks = await readCollectionForPeriodId<Week>(period.id, "weeks");
@@ -34,8 +37,11 @@ export default async function CotisationsPage({
       weeks = generateWeeks(period.startDate, period.endDate, period.periodicity);
       await writeCollectionForPeriod(period, "weeks", weeks);
     }
-    contributions = await readCollectionForPeriodId<Contribution>(period.id, "contributions");
-    members = await listEnrolledForPeriod(period.id);
+    [contributions, members, settings] = await Promise.all([
+      readCollectionForPeriodId<Contribution>(period.id, "contributions"),
+      listEnrolledForPeriod(period.id),
+      readObjectForPeriodId(period.id, "settings", DEFAULT_SETTINGS),
+    ]);
   }
 
   return (
@@ -49,8 +55,8 @@ export default async function CotisationsPage({
             Cotisations
           </h1>
           <p className="mt-2 max-w-xl text-[var(--muted)]">
-            Grille membre × séances. Les dates viennent de la périodicité de la tontine. Une
-            cotisation saisie est verrouillée.
+            Marquez Payé (montant = cible) ou Impayé (pénalité automatique). Chaque marquage est
+            verrouillé ; déverrouillez avec le mot de passe pour corriger.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -87,6 +93,7 @@ export default async function CotisationsPage({
             members={members}
             weeks={weeks}
             contributions={contributions}
+            penaltyAmount={settings.penaltyLateContribution}
             readOnly={!canWrite}
           />
         </section>

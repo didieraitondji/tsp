@@ -3,7 +3,15 @@
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { auditRepo, globalMembersRepo, settingsRepo, usersRepo } from "@/lib/db/collections";
-import { appendCashEntry, applyLatePenaltiesForWeek, computeLoanFigures, newId, unlockContribution, upsertContribution } from "@/lib/db/domain";
+import {
+  appendCashEntry,
+  applyLatePenaltiesForWeek,
+  computeLoanFigures,
+  markContributionStatus,
+  newId,
+  unlockContribution,
+  upsertContribution,
+} from "@/lib/db/domain";
 import {
   requireGestionWrite,
   requireLoanApprover,
@@ -16,6 +24,7 @@ import {
   createPeriodSchema,
   createUserSchema,
   contributionInputSchema,
+  markContributionSchema,
   enrollmentFieldsSchema,
   loanInputSchema,
   memberSchema,
@@ -646,7 +655,7 @@ export async function addWeekAction(formData: FormData) {
 }
 
 export type SaveContributionResult =
-  | { ok: true; amount: number; locked: boolean }
+  | { ok: true; amount: number; locked: boolean; status: "paid" | "unpaid"; penaltyCreated?: boolean }
   | { ok: false; error?: string };
 
 export async function saveContributionAction(
@@ -670,6 +679,56 @@ export async function saveContributionAction(
       ok: true,
       amount: result.amount,
       locked: result.amount > 0 && result.locked !== false,
+      status: result.status === "unpaid" ? "unpaid" : "paid",
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Enregistrement impossible.",
+    };
+  }
+}
+
+/** Marque Payé (cible) ou Impayé (0 + pénalité). Verrouille ensuite. */
+export async function markContributionAction(
+  formData: FormData
+): Promise<SaveContributionResult> {
+  const session = await requireRole(["SUPER_ADMIN", "GESTIONNAIRE"]);
+  const periodId = String(formData.get("periodId") || "").trim();
+  const parsed = markContributionSchema.safeParse({
+    memberId: formData.get("memberId"),
+    weekId: formData.get("weekId"),
+    status: formData.get("status"),
+  });
+  if (!parsed.success || !periodId) return { ok: false, error: "Données invalides." };
+
+  const weeklyTarget = Number(formData.get("weeklyTarget"));
+  if (parsed.data.status === "paid" && !(weeklyTarget > 0)) {
+    return { ok: false, error: "Cible de cotisation manquante." };
+  }
+
+  try {
+    const settings = await readObjectForPeriodId(periodId, "settings", DEFAULT_SETTINGS);
+    const { contribution, penaltyCreated } = await markContributionStatus({
+      periodId,
+      memberId: parsed.data.memberId,
+      weekId: parsed.data.weekId,
+      status: parsed.data.status,
+      weeklyTarget: weeklyTarget > 0 ? weeklyTarget : 0,
+      recordedBy: session.user.id,
+      penaltyAmount: settings.penaltyLateContribution,
+    });
+    if (penaltyCreated) {
+      revalidatePath("/gestion/penalites");
+      revalidatePath("/membre/penalites");
+      revalidatePath("/membre");
+    }
+    return {
+      ok: true,
+      amount: contribution.amount,
+      locked: contribution.locked !== false,
+      status: contribution.status === "unpaid" ? "unpaid" : "paid",
+      penaltyCreated,
     };
   } catch (e) {
     return {

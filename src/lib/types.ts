@@ -99,6 +99,8 @@ export interface Week {
   year: number;
 }
 
+export type ContributionStatus = "paid" | "unpaid";
+
 export interface Contribution {
   id: string;
   memberId: string;
@@ -106,8 +108,13 @@ export interface Contribution {
   amount: number;
   paidAt: string;
   recordedBy: string;
-  /** false après déverrouillage ; true (ou absent avec amount>0) = lecture seule */
+  /** false après déverrouillage ; true (ou absent) = lecture seule une fois marqué */
   locked?: boolean;
+  /**
+   * Statut explicite (grille Payé / Impayé).
+   * Legacy : absent + amount>0 ⇒ payé ; absent + amount=0 / pas d’enregistrement ⇒ non marqué.
+   */
+  status?: ContributionStatus;
 }
 
 export interface LoanApproval {

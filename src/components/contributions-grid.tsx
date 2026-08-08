@@ -4,8 +4,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContributionCell } from "@/components/contribution-cell";
 import { CopyWeekReportButton } from "@/components/copy-week-report-button";
 import { orderWeeksForGrid, todayIsoLocal } from "@/lib/cotisations-report";
+import {
+  isContributionRecordLocked,
+  resolveContributionStatus,
+} from "@/lib/contribution-status";
 import { formatDate, formatFcfa } from "@/lib/format";
-import type { Contribution, EnrolledMember, Periodicity, Week } from "@/lib/types";
+import type {
+  Contribution,
+  ContributionStatus,
+  EnrolledMember,
+  Periodicity,
+  Week,
+} from "@/lib/types";
 
 const MEMBER_COL_W = 11; // rem
 const TARGET_COL_W = 6.5;
@@ -17,6 +27,7 @@ export function ContributionsGrid({
   members,
   weeks,
   contributions,
+  penaltyAmount,
   readOnly = false,
 }: {
   periodId: string;
@@ -24,6 +35,7 @@ export function ContributionsGrid({
   members: EnrolledMember[];
   weeks: Week[];
   contributions: Contribution[];
+  penaltyAmount: number;
   readOnly?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -33,7 +45,6 @@ export function ContributionsGrid({
 
   const { ordered, nextId } = useMemo(() => orderWeeksForGrid(weeks, today), [weeks, today]);
 
-  // État local pour totaux / verrous sans recharger la page
   const [localContributions, setLocalContributions] = useState(contributions);
   useEffect(() => {
     setLocalContributions(contributions);
@@ -46,30 +57,29 @@ export function ContributionsGrid({
   }, [localContributions]);
 
   const handleCellSaved = useCallback(
-    (memberId: string, weekId: string, next: { amount: number; locked: boolean }) => {
+    (
+      memberId: string,
+      weekId: string,
+      next: { amount: number; locked: boolean; status: ContributionStatus }
+    ) => {
       setLocalContributions((prev) => {
         const idx = prev.findIndex((c) => c.memberId === memberId && c.weekId === weekId);
-        if (next.amount <= 0) {
-          if (idx < 0) return prev;
-          return prev.filter((_, i) => i !== idx);
-        }
+        const patch: Contribution = {
+          id: idx >= 0 ? prev[idx].id : `local-${memberId}-${weekId}`,
+          memberId,
+          weekId,
+          amount: next.amount,
+          paidAt: new Date().toISOString(),
+          recordedBy: idx >= 0 ? prev[idx].recordedBy : "",
+          locked: next.locked,
+          status: next.status,
+        };
         if (idx >= 0) {
           const copy = [...prev];
-          copy[idx] = { ...copy[idx], amount: next.amount, locked: next.locked };
+          copy[idx] = { ...prev[idx], ...patch };
           return copy;
         }
-        return [
-          ...prev,
-          {
-            id: `local-${memberId}-${weekId}`,
-            memberId,
-            weekId,
-            amount: next.amount,
-            paidAt: new Date().toISOString(),
-            recordedBy: "",
-            locked: next.locked,
-          },
-        ];
+        return [...prev, patch];
       });
     },
     []
@@ -87,7 +97,6 @@ export function ContributionsGrid({
     [members]
   );
 
-  // Scroll initial vers « Prochaine » une seule fois par tontine
   useEffect(() => {
     if (scrolledForPeriod.current === periodId) return;
     const scroller = scrollRef.current;
@@ -149,7 +158,7 @@ export function ContributionsGrid({
                         ? "bg-[var(--cream)]/80 text-[var(--muted)]"
                         : "bg-white text-[var(--navy)]"
                   }`}
-                  style={{ minWidth: "6.5rem" }}
+                  style={{ minWidth: "7rem" }}
                 >
                   {formatDate(w.date)}
                   {isNext && (
@@ -186,7 +195,8 @@ export function ContributionsGrid({
               {ordered.map((w) => {
                 const c = map.get(`${m.id}:${w.id}`);
                 const amount = c?.amount ?? 0;
-                const locked = Boolean(c && c.amount > 0 && c.locked !== false);
+                const status = resolveContributionStatus(c);
+                const locked = Boolean(c && isContributionRecordLocked(c));
                 const isNext = w.id === nextId;
                 return (
                   <td
@@ -196,15 +206,30 @@ export function ContributionsGrid({
                     }`}
                   >
                     {readOnly ? (
-                      <div className="rounded border border-[var(--line)] bg-[var(--cream)]/40 px-1.5 py-1 text-right text-xs tabular-nums text-[var(--navy)]">
-                        {amount > 0 ? formatFcfa(amount).replace(" FCFA", "") : "—"}
+                      <div
+                        className={`rounded-lg border px-1.5 py-1 text-center text-[11px] font-semibold tabular-nums ${
+                          status === "paid"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                            : status === "unpaid"
+                              ? "border-red-200 bg-red-50 text-red-800"
+                              : "border-[var(--line)] bg-[var(--cream)]/40 text-[var(--muted)]"
+                        }`}
+                      >
+                        {status === "paid"
+                          ? formatFcfa(amount).replace(" FCFA", "")
+                          : status === "unpaid"
+                            ? "Impayé"
+                            : "—"}
                       </div>
                     ) : (
                       <ContributionCell
                         periodId={periodId}
                         memberId={m.id}
                         weekId={w.id}
+                        weeklyTarget={m.weeklyTarget}
+                        penaltyAmount={penaltyAmount}
                         amount={amount}
+                        status={status}
                         locked={locked}
                         onSaved={(next) => handleCellSaved(m.id, w.id, next)}
                       />
