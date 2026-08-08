@@ -19,7 +19,15 @@ import type {
 
 const MEMBER_COL_W = 11; // rem
 const TARGET_COL_W = 6.5;
-const STICKY_LEFT_TARGET = MEMBER_COL_W; // rem offset for cible
+const STICKY_LEFT_TARGET = MEMBER_COL_W;
+const WEEKDAY_SHORT = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."] as const;
+
+function weekdayShort(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const day = new Date(y, m - 1, d).getDay();
+  return WEEKDAY_SHORT[day] ?? "";
+}
 
 export function ContributionsGrid({
   periodId,
@@ -42,6 +50,7 @@ export function ContributionsGrid({
   const nextColRef = useRef<HTMLTableCellElement>(null);
   const scrolledForPeriod = useRef<string | null>(null);
   const today = todayIsoLocal();
+  const [hoveredWeekId, setHoveredWeekId] = useState<string | null>(null);
 
   const { ordered, nextId } = useMemo(() => orderWeeksForGrid(weeks, today), [weeks, today]);
 
@@ -123,19 +132,29 @@ export function ContributionsGrid({
     );
   }
 
+  function weekColTone(w: Week, weekIndex: number): string {
+    if (w.id === nextId) return "bg-[#FFF8EB]/80";
+    if (hoveredWeekId === w.id) return "bg-[#FFCD79]/25";
+    if (weekIndex % 2 === 1) return "bg-[var(--cream)]/35";
+    return "bg-white";
+  }
+
   return (
-    <div ref={scrollRef} className="overflow-x-auto">
+    <div
+      ref={scrollRef}
+      className="max-h-[min(70vh,calc(100dvh-14rem))] overflow-auto overscroll-contain"
+    >
       <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
         <thead>
           <tr>
             <th
-              className="sticky left-0 z-30 border-b border-r border-[var(--line)] bg-[var(--panel)] px-3 py-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]"
+              className="sticky left-0 top-0 z-40 border-b border-r border-[var(--line)] bg-[var(--panel)] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)]"
               style={{ minWidth: `${MEMBER_COL_W}rem`, maxWidth: `${MEMBER_COL_W}rem` }}
             >
               Membre
             </th>
             <th
-              className="sticky z-30 border-b border-r border-[var(--line)] bg-[var(--panel)] px-2 py-3 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]"
+              className="sticky top-0 z-40 border-b border-r border-[var(--line)] bg-[var(--panel)] px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)]"
               style={{
                 left: `${STICKY_LEFT_TARGET}rem`,
                 minWidth: `${TARGET_COL_W}rem`,
@@ -144,23 +163,36 @@ export function ContributionsGrid({
             >
               Cible
             </th>
-            {ordered.map((w) => {
+            {ordered.map((w, weekIndex) => {
               const isNext = w.id === nextId;
               const isPast = w.date < today;
+              const isHovered = hoveredWeekId === w.id;
               return (
                 <th
                   key={w.id}
                   ref={isNext ? nextColRef : undefined}
-                  className={`border-b border-[var(--line)] px-2 py-3 text-center text-xs font-semibold whitespace-nowrap ${
+                  onMouseEnter={() => setHoveredWeekId(w.id)}
+                  onMouseLeave={() => setHoveredWeekId(null)}
+                  title={formatDate(w.date)}
+                  className={`sticky top-0 z-30 border-b border-[var(--line)] px-2 py-2 text-center text-xs font-semibold whitespace-nowrap shadow-[0_1px_0_var(--line)] ${
                     isNext
                       ? "bg-[#1D2D50] text-[#FFCD79]"
-                      : isPast
-                        ? "bg-[var(--cream)]/80 text-[var(--muted)]"
-                        : "bg-white text-[var(--navy)]"
+                      : isHovered
+                        ? "bg-[#FFCD79]/55 text-[var(--navy)]"
+                        : isPast
+                          ? weekIndex % 2 === 1
+                            ? "bg-[var(--cream)] text-[var(--muted)]"
+                            : "bg-[#faf6f1] text-[var(--muted)]"
+                          : weekIndex % 2 === 1
+                            ? "bg-[var(--cream)]/70 text-[var(--navy)]"
+                            : "bg-[var(--panel)] text-[var(--navy)]"
                   }`}
                   style={{ minWidth: "7rem" }}
                 >
-                  {formatDate(w.date)}
+                  <span className="block text-[10px] font-medium uppercase tracking-wide opacity-80">
+                    {weekdayShort(w.date)}
+                  </span>
+                  <span className="tabular-nums">{formatDate(w.date)}</span>
                   {isNext && (
                     <span className="mt-0.5 block text-[9px] font-medium uppercase tracking-wide opacity-80">
                       Prochaine
@@ -192,18 +224,18 @@ export function ContributionsGrid({
               >
                 {formatFcfa(m.weeklyTarget)}
               </td>
-              {ordered.map((w) => {
+              {ordered.map((w, weekIndex) => {
                 const c = map.get(`${m.id}:${w.id}`);
                 const amount = c?.amount ?? 0;
                 const status = resolveContributionStatus(c);
                 const locked = Boolean(c && isContributionRecordLocked(c));
-                const isNext = w.id === nextId;
                 return (
                   <td
                     key={w.id}
-                    className={`border-b border-[var(--line)] px-2 py-1.5 ${
-                      isNext ? "bg-[#FFF8EB]/70" : ""
-                    }`}
+                    onMouseEnter={() => setHoveredWeekId(w.id)}
+                    onMouseLeave={() => setHoveredWeekId(null)}
+                    title={`${m.lastName} ${m.firstName} · ${formatDate(w.date)}`}
+                    className={`border-b border-[var(--line)] px-2 py-1.5 ${weekColTone(w, weekIndex)}`}
                   >
                     {readOnly ? (
                       <div
@@ -212,7 +244,7 @@ export function ContributionsGrid({
                             ? "border-emerald-200 bg-emerald-50 text-emerald-900"
                             : status === "unpaid"
                               ? "border-red-200 bg-red-50 text-red-800"
-                              : "border-[var(--line)] bg-[var(--cream)]/40 text-[var(--muted)]"
+                              : "border-[var(--line)] bg-white/70 text-[var(--muted)]"
                         }`}
                       >
                         {status === "paid"
@@ -243,16 +275,16 @@ export function ContributionsGrid({
         <tfoot>
           <tr>
             <td
-              className="sticky left-0 z-20 border-t border-r border-[var(--line)] bg-[var(--panel)] px-3 py-3 text-xs font-semibold text-[var(--navy)]"
+              className="sticky bottom-0 left-0 z-30 border-t border-r border-[var(--line)] bg-[var(--panel)] px-3 py-3 text-xs font-semibold text-[var(--navy)] shadow-[0_-1px_0_var(--line)]"
               style={{ minWidth: `${MEMBER_COL_W}rem` }}
             >
               Total / rapport
             </td>
             <td
-              className="sticky z-20 border-t border-r border-[var(--line)] bg-[var(--panel)]"
+              className="sticky bottom-0 z-30 border-t border-r border-[var(--line)] bg-[var(--panel)] shadow-[0_-1px_0_var(--line)]"
               style={{ left: `${STICKY_LEFT_TARGET}rem`, minWidth: `${TARGET_COL_W}rem` }}
             />
-            {ordered.map((w) => {
+            {ordered.map((w, weekIndex) => {
               const lines = sortedMembers.map((m) => ({
                 lastName: m.lastName,
                 firstName: m.firstName,
@@ -261,7 +293,12 @@ export function ContributionsGrid({
               const total = lines.reduce((s, l) => s + (l.amount > 0 ? l.amount : 0), 0);
               const isPast = w.date < today;
               return (
-                <td key={w.id} className="border-t border-[var(--line)] px-2 py-3 align-top">
+                <td
+                  key={w.id}
+                  onMouseEnter={() => setHoveredWeekId(w.id)}
+                  onMouseLeave={() => setHoveredWeekId(null)}
+                  className={`sticky bottom-0 z-20 border-t border-[var(--line)] px-2 py-3 align-top shadow-[0_-1px_0_var(--line)] ${weekColTone(w, weekIndex)}`}
+                >
                   <p className="mb-2 text-center text-[11px] font-semibold tabular-nums text-[var(--navy)]">
                     {formatFcfa(total)}
                   </p>

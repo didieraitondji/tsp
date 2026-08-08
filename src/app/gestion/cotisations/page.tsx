@@ -77,7 +77,7 @@ export default async function CotisationsPage({
           Créez une tontine pour saisir les cotisations.
         </p>
       ) : (
-        <section className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
+        <section className="rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-5 py-3">
             <p className="text-sm font-medium text-[var(--navy)]">
               {period.name}
