@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, CircleDollarSign } from "lucide-react";
 import { markPenaltyPaidAction } from "@/app/actions";
 import { CreatePenaltyModal } from "@/components/create-penalty-modal";
+import { DeletePenaltyButton } from "@/components/delete-penalty-button";
 import { PenalitesTontineFilter } from "@/components/penalites-tontine-filter";
 import { listEnrolledForPeriod } from "@/lib/db/collections";
 import { memberDisplayName } from "@/lib/db/domain";
@@ -216,19 +217,30 @@ export default async function PenalitesPage({
                               </span>
                             )}
                           </td>
-                          <td className="px-5 py-3.5 text-right">
-                            {!p.paid && canWrite && (
-                              <form action={markPenaltyPaidAction}>
-                                <input type="hidden" name="id" value={p.id} />
-                                <input type="hidden" name="periodId" value={periodId} />
-                                <button
-                                  type="submit"
-                                  className="cursor-pointer rounded-full border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--navy)] transition hover:bg-[var(--cream)]"
-                                >
-                                  Marquer payé
-                                </button>
-                              </form>
-                            )}
+                          <td className="px-5 py-3.5">
+                            <div className="flex items-center justify-end gap-1">
+                              {!p.paid && canWrite && (
+                                <form action={markPenaltyPaidAction}>
+                                  <input type="hidden" name="id" value={p.id} />
+                                  <input type="hidden" name="periodId" value={periodId} />
+                                  <button
+                                    type="submit"
+                                    className="cursor-pointer rounded-full border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--navy)] transition hover:bg-[var(--cream)]"
+                                  >
+                                    Marquer payé
+                                  </button>
+                                </form>
+                              )}
+                              {canWrite && (
+                                <DeletePenaltyButton
+                                  penaltyId={p.id}
+                                  periodId={periodId}
+                                  memberLabel={m ? memberDisplayName(m) : p.memberId}
+                                  motifLabel={p.motifLabel}
+                                  amount={p.amount}
+                                />
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );

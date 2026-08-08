@@ -1124,6 +1124,33 @@ export async function markPenaltyPaidAction(formData: FormData) {
   return;
 }
 
+export async function deletePenaltyAction(formData: FormData) {
+  await requireGestionWrite();
+  const id = String(formData.get("id") || "").trim();
+  const periodId = String(formData.get("periodId") || "").trim();
+  if (!id || !periodId) return;
+
+  const meta = await readMeta();
+  const period = meta.periods.find((p) => p.id === periodId);
+  if (!period) return;
+
+  const penalties = await readCollectionForPeriodId<Penalty>(periodId, "penalties");
+  const target = penalties.find((p) => p.id === id);
+  if (!target) return;
+
+  await writeCollectionForPeriod(
+    period,
+    "penalties",
+    penalties.filter((p) => p.id !== id)
+  );
+  await audit("penalty.delete", `${target.memberId} · ${target.motifLabel}`);
+  revalidatePath("/gestion/penalites");
+  revalidatePath("/gestion");
+  revalidatePath("/membre");
+  revalidatePath("/membre/penalites");
+  return;
+}
+
 export async function createCashEntryAction(formData: FormData) {
   const session = await requireGestionWrite();
   const periodId = String(formData.get("periodId") || "").trim();

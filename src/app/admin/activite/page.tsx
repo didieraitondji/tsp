@@ -58,6 +58,7 @@ function labelOf(action: string): string {
     "settings.update": "Paramètres mis à jour",
     "settings.loan_withdrawal_fee": "Frais de retrait modifiés",
     "penalty.create": "Pénalité créée",
+    "penalty.delete": "Pénalité supprimée",
   };
   return map[action] ?? action;
 }
