@@ -6,9 +6,11 @@ import { auditRepo, globalMembersRepo, settingsRepo, usersRepo } from "@/lib/db/
 import {
   appendCashEntry,
   applyLatePenaltiesForWeek,
+  CASH_ORIGIN_PENALTY,
   computeLoanFigures,
   markContributionStatus,
   newId,
+  removeCashEntriesByReference,
   unlockContribution,
   upsertContribution,
 } from "@/lib/db/domain";
@@ -1112,7 +1114,7 @@ export async function markPenaltyPaidAction(formData: FormData) {
       description: `Pénalité payée ${id}`,
       amount: target.amount,
       reference: id,
-      origin: "Pénalité",
+      origin: CASH_ORIGIN_PENALTY,
       recordedBy: session.user.name,
       periodId,
     });
@@ -1143,8 +1145,17 @@ export async function deletePenaltyAction(formData: FormData) {
     "penalties",
     penalties.filter((p) => p.id !== id)
   );
+
+  // Si la pénalité avait été marquée payée, retirer l’écriture caisse associée
+  await removeCashEntriesByReference({
+    periodId,
+    reference: id,
+    origin: CASH_ORIGIN_PENALTY,
+  });
+
   await audit("penalty.delete", `${target.memberId} · ${target.motifLabel}`);
   revalidatePath("/gestion/penalites");
+  revalidatePath("/gestion/caisse");
   revalidatePath("/gestion");
   revalidatePath("/membre");
   revalidatePath("/membre/penalites");

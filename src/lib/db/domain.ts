@@ -184,12 +184,32 @@ export async function rebuildCashBalances(
 /** Origine des écritures auto liées aux cotisations. */
 export const CASH_ORIGIN_CONTRIBUTION = "Cotisation";
 export const CASH_ORIGIN_LOAN = "Prêt octroyé";
+export const CASH_ORIGIN_PENALTY = "Pénalité";
 
 async function savePeriodCashbook(period: Period, entries: CashEntry[]): Promise<CashEntry[]> {
   const settings = await readObjectForPeriodId(period.id, "settings", DEFAULT_SETTINGS);
   const next = await rebuildCashBalances(entries, settings.cashOpeningBalance);
   await writeCollectionForPeriod(period, "cashbook", next);
   return next;
+}
+
+/** Retire les écritures caisse liées à une référence (ex. pénalité payée). Recalcule les soldes. */
+export async function removeCashEntriesByReference(input: {
+  periodId: string;
+  reference: string;
+  origin: string;
+}): Promise<number> {
+  const meta = await readMeta();
+  const period = meta.periods.find((p) => p.id === input.periodId);
+  if (!period) return 0;
+
+  const items = await readCollectionForPeriodId<CashEntry>(input.periodId, "cashbook");
+  const next = items.filter(
+    (e) => !(e.reference === input.reference && e.origin === input.origin)
+  );
+  if (next.length === items.length) return 0;
+  await savePeriodCashbook(period, next);
+  return items.length - next.length;
 }
 
 /**
