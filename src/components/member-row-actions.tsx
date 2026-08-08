@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Loader2, Pencil, Trash2 } from "lucide-react";
 import { deleteMemberAction, saveMemberAction } from "@/app/actions";
+import { DEFAULT_TEMP_PASSWORD } from "@/lib/auth/constants";
 import { Modal } from "@/components/modal";
 import { SubmitButton } from "@/components/submit-button";
 import { Input, Label, Select } from "@/components/ui";
@@ -12,13 +13,18 @@ import type { Member } from "@/lib/types";
 export function MemberRowActions({
   member,
   archivedFromDirectory,
+  hasMemberAccount = false,
 }: {
   member: Member;
   archivedFromDirectory?: boolean;
+  /** True si un compte utilisateur (rôle MEMBRE) est déjà lié. */
+  hasMemberAccount?: boolean;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [createAccount, setCreateAccount] = useState(false);
 
   if (archivedFromDirectory) {
     return (
@@ -36,7 +42,11 @@ export function MemberRowActions({
       <div className="flex items-center justify-end gap-1">
         <button
           type="button"
-          onClick={() => setEditOpen(true)}
+          onClick={() => {
+            setError(null);
+            setCreateAccount(false);
+            setEditOpen(true);
+          }}
           className="inline-flex cursor-pointer items-center justify-center rounded-lg p-2 text-[var(--muted)] transition hover:bg-[var(--cream)] hover:text-[var(--navy)]"
           title="Modifier"
           aria-label="Modifier"
@@ -63,8 +73,13 @@ export function MemberRowActions({
       >
         <form
           action={async (fd) => {
+            setError(null);
+            if (!hasMemberAccount && createAccount) fd.set("createAccount", "true");
             const result = await saveMemberAction(fd);
-            if (result?.error) return;
+            if (result?.error) {
+              setError(result.error);
+              return;
+            }
             setEditOpen(false);
           }}
           className="space-y-3.5"
@@ -81,8 +96,16 @@ export function MemberRowActions({
             </div>
           </div>
           <div>
-            <Label>Téléphone</Label>
-            <PhoneInput name="phone" showIcon={false} defaultValue={member.phone} />
+            <Label>
+              Téléphone
+              {!hasMemberAccount && createAccount ? "" : " (optionnel)"}
+            </Label>
+            <PhoneInput
+              name="phone"
+              required={!hasMemberAccount && createAccount}
+              showIcon={false}
+              defaultValue={member.phone}
+            />
             <p className="mt-1 text-xs text-[var(--muted)]">+229 · 10 chiffres</p>
           </div>
           <div>
@@ -97,6 +120,39 @@ export function MemberRowActions({
               <option value="F">F</option>
             </Select>
           </div>
+
+          {!hasMemberAccount ? (
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--cream)]/40 px-3.5 py-3 transition hover:border-[#FFCD79]">
+              <input
+                type="checkbox"
+                checked={createAccount}
+                onChange={(e) => setCreateAccount(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-[var(--line)] accent-[#1D2D50]"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-[var(--navy)]">
+                  Créer le compte membre
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-relaxed text-[var(--muted)]">
+                  Nécessite un téléphone · MDP temporaire{" "}
+                  <span className="font-mono font-semibold text-[var(--navy)]">
+                    {DEFAULT_TEMP_PASSWORD}
+                  </span>{" "}
+                  (changement à la 1ʳᵉ connexion).
+                </span>
+              </span>
+            </label>
+          ) : (
+            <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-900">
+              Un compte membre est déjà lié à cette fiche.
+            </p>
+          )}
+
+          {error && (
+            <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+              {error}
+            </p>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <button
               type="button"

@@ -331,38 +331,120 @@ export async function saveMemberAction(formData: FormData): Promise<MemberAction
   const createAccount =
     formData.get("createAccount") === "on" || formData.get("createAccount") === "true";
 
+  async function ensureMemberAccount(member: Member): Promise<MemberActionState> {
+    const users = await usersRepo.all();
+    if (users.some((u) => u.memberId === member.id)) {
+      return { ok: true };
+    }
+    if (!member.phone) {
+      return { error: "Téléphone requis pour créer le compte membre." };
+    }
+    const accountPhone = normalizePhone(member.phone);
+    if (!accountPhone) {
+      return { error: "Téléphone invalide." };
+    }
+    if (users.some((u) => phonesMatch(u.phone, accountPhone))) {
+      return {
+        error:
+          "Un compte existe déjà avec ce numéro. Désactivez la création de compte ou changez le téléphone.",
+      };
+    }
+
+    const { DEFAULT_TEMP_PASSWORD } = await import("@/lib/auth/constants");
+    const now = new Date().toISOString();
+    const user: User = {
+      id: newId("USR"),
+      phone: accountPhone,
+      passwordHash: await bcrypt.hash(DEFAULT_TEMP_PASSWORD, 10),
+      name: `${member.lastName} ${member.firstName}`.trim(),
+      role: "MEMBRE",
+      memberId: member.id,
+      active: true,
+      email: member.email?.trim() ? member.email.trim().toLowerCase() : null,
+      mustChangePassword: true,
+      twoFactorEnabled: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    try {
+      await usersRepo.update((items) => [...items, user]);
+      await audit("user.create", `${user.phone} (MEMBRE, auto)`);
+      revalidatePath("/admin/utilisateurs");
+      return { ok: true };
+    } catch (e) {
+      console.error("saveMemberAction createAccount", e);
+      return {
+        error:
+          "Le compte n’a pas pu être créé (conflit possible). Créez-le depuis Comptes & rôles.",
+      };
+    }
+  }
+
   if (data.id) {
+    const existing = (await globalMembersRepo.all()).find((m) => m.id === data.id);
+    if (!existing) return { error: "Membre introuvable." };
+
+    const updated: Member = {
+      ...existing,
+      ...data,
+      id: data.id,
+      joinedAt: data.joinedAt || existing.joinedAt,
+      email: data.email || undefined,
+    };
+
+    if (createAccount) {
+      const users = await usersRepo.all();
+      const alreadyHas = users.some((u) => u.memberId === data.id);
+      if (!alreadyHas) {
+        if (!updated.phone) {
+          return { error: "Téléphone requis pour créer le compte membre." };
+        }
+        const accountPhone = normalizePhone(updated.phone);
+        if (!accountPhone) {
+          return { error: "Téléphone invalide." };
+        }
+        if (users.some((u) => phonesMatch(u.phone, accountPhone))) {
+          return {
+            error:
+              "Un compte existe déjà avec ce numéro. Désactivez la création de compte ou changez le téléphone.",
+          };
+        }
+      }
+    }
+
     await globalMembersRepo.update((items) =>
-      items.map((m) =>
-        m.id === data.id
-          ? {
-              ...m,
-              ...data,
-              id: data.id!,
-              joinedAt: data.joinedAt || m.joinedAt,
-              email: data.email || undefined,
-            }
-          : m
-      )
+      items.map((m) => (m.id === data.id ? updated : m))
     );
     await audit("member.update", `${data.lastName} ${data.firstName}`);
+
+    if (createAccount) {
+      const accountResult = await ensureMemberAccount(updated);
+      revalidatePath("/gestion/membres");
+      if (accountResult?.error) {
+        return {
+          error: `Membre mis à jour, mais ${accountResult.error.charAt(0).toLowerCase()}${accountResult.error.slice(1)}`,
+        };
+      }
+      return { ok: true };
+    }
+
     revalidatePath("/gestion/membres");
     return { ok: true };
   }
 
-  let accountPhone: string | null = null;
   if (createAccount) {
     if (!data.phone) {
       return { error: "Téléphone requis pour créer le compte membre." };
     }
-    accountPhone = normalizePhone(data.phone);
+    const accountPhone = normalizePhone(data.phone);
     if (!accountPhone) {
       return { error: "Téléphone invalide." };
     }
     const users = await usersRepo.all();
-    if (users.some((u) => phonesMatch(u.phone, accountPhone!))) {
+    if (users.some((u) => phonesMatch(u.phone, accountPhone))) {
       return {
-        error: "Un compte existe déjà avec ce numéro. Désactivez la création de compte ou changez le téléphone.",
+        error:
+          "Un compte existe déjà avec ce numéro. Désactivez la création de compte ou changez le téléphone.",
       };
     }
   }
@@ -405,36 +487,15 @@ export async function saveMemberAction(formData: FormData): Promise<MemberAction
 
   await audit("member.create", `${data.lastName} ${data.firstName}`);
 
-  if (createAccount && accountPhone) {
-    const { DEFAULT_TEMP_PASSWORD } = await import("@/lib/auth/constants");
-    const now = new Date().toISOString();
-    const member = created as Member;
-    const user: User = {
-      id: newId("USR"),
-      phone: accountPhone,
-      passwordHash: await bcrypt.hash(DEFAULT_TEMP_PASSWORD, 10),
-      name: `${member.lastName} ${member.firstName}`.trim(),
-      role: "MEMBRE",
-      memberId: member.id,
-      active: true,
-      email: member.email?.trim() ? member.email.trim().toLowerCase() : null,
-      mustChangePassword: true,
-      twoFactorEnabled: false,
-      createdAt: now,
-      updatedAt: now,
-    };
-    try {
-      await usersRepo.update((items) => [...items, user]);
-      await audit("user.create", `${user.phone} (MEMBRE, auto)`);
-      revalidatePath("/admin/utilisateurs");
-    } catch (e) {
-      console.error("saveMemberAction createAccount", e);
-      revalidatePath("/gestion/membres");
+  if (createAccount) {
+    const accountResult = await ensureMemberAccount(created as Member);
+    revalidatePath("/gestion/membres");
+    if (accountResult?.error) {
       return {
-        error:
-          "Membre créé, mais le compte n’a pas pu être créé (conflit possible). Créez le compte depuis Comptes & rôles.",
+        error: `Membre créé, mais ${accountResult.error.charAt(0).toLowerCase()}${accountResult.error.slice(1)}`,
       };
     }
+    return { ok: true };
   }
 
   revalidatePath("/gestion/membres");

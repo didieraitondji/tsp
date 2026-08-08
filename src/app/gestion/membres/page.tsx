@@ -4,6 +4,7 @@ import {
   globalMembersRepo,
   listEnrolledForPeriod,
   settingsRepo,
+  usersRepo,
 } from "@/lib/db/collections";
 import { listPeriods } from "@/lib/db/periods";
 import { readCollectionForPeriodId } from "@/lib/db/store";
@@ -42,10 +43,12 @@ function StatusPill({ status }: { status: MemberStatus }) {
 function DirectoryTable({
   members,
   enrolledAnywhereIds,
+  memberIdsWithAccount,
   canWrite,
 }: {
   members: Member[];
   enrolledAnywhereIds: Set<string>;
+  memberIdsWithAccount: Set<string>;
   canWrite: boolean;
 }) {
   if (members.length === 0) {
@@ -107,7 +110,12 @@ function DirectoryTable({
                 )}
               </td>
               <td className="px-5 py-3.5">
-                {canWrite ? <MemberRowActions member={m} /> : null}
+                {canWrite ? (
+                  <MemberRowActions
+                    member={m}
+                    hasMemberAccount={memberIdsWithAccount.has(m.id)}
+                  />
+                ) : null}
               </td>
             </tr>
           ))}
@@ -125,11 +133,16 @@ export default async function MembresPage({
   const session = await requireGestionAccess();
   const canWrite = canWriteGestion(session.user.role);
   const sp = await searchParams;
-  const [allMembers, settings, periods] = await Promise.all([
+  const [allMembers, settings, periods, users] = await Promise.all([
     globalMembersRepo.all(),
     settingsRepo.get(),
     listPeriods(),
+    usersRepo.all(),
   ]);
+
+  const memberIdsWithAccount = new Set(
+    users.map((u) => u.memberId).filter((id): id is string => Boolean(id))
+  );
 
   const view = sp.view === "inscrits" ? "inscrits" : "annuaire";
   const filterTontineId =
@@ -357,6 +370,7 @@ export default async function MembresPage({
                           <MemberRowActions
                             member={m}
                             archivedFromDirectory={m.archivedFromDirectory}
+                            hasMemberAccount={memberIdsWithAccount.has(m.id)}
                           />
                         ) : m.archivedFromDirectory ? (
                           <span className="text-[11px] text-[var(--muted)]">Archive</span>
@@ -372,6 +386,7 @@ export default async function MembresPage({
           <DirectoryTable
             members={allMembers}
             enrolledAnywhereIds={enrolledAnywhereIds}
+            memberIdsWithAccount={memberIdsWithAccount}
             canWrite={canWrite}
           />
         )}
