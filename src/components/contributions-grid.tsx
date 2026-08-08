@@ -22,6 +22,17 @@ const TARGET_COL_W = 6.5;
 const STICKY_LEFT_TARGET = MEMBER_COL_W;
 const WEEKDAY_SHORT = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."] as const;
 
+/** Fonds opaques (évite le bleed-through sous sticky header/footer). */
+const BG = {
+  panel: "bg-[#fffaf5]",
+  white: "bg-white",
+  cream: "bg-[#f4e4d7]",
+  creamSoft: "bg-[#faf6f1]",
+  next: "bg-[#FFF8EB]",
+  hover: "bg-[#FFE6A8]",
+  nextHeader: "bg-[#1D2D50] text-[#FFCD79]",
+} as const;
+
 function weekdayShort(isoDate: string): string {
   const [y, m, d] = isoDate.split("-").map(Number);
   if (!y || !m || !d) return "";
@@ -48,7 +59,6 @@ export function ContributionsGrid({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const nextColRef = useRef<HTMLTableCellElement>(null);
-  const scrolledForPeriod = useRef<string | null>(null);
   const today = todayIsoLocal();
   const [hoveredWeekId, setHoveredWeekId] = useState<string | null>(null);
 
@@ -106,14 +116,39 @@ export function ContributionsGrid({
     [members]
   );
 
+  // Aligne la colonne « Prochaine » juste après Membre/Cible (comme avant).
   useEffect(() => {
-    if (scrolledForPeriod.current === periodId) return;
-    const scroller = scrollRef.current;
-    const nextCell = nextColRef.current;
-    if (!scroller || !nextCell) return;
-    const stickyWidth = (MEMBER_COL_W + TARGET_COL_W) * 16;
-    scroller.scrollLeft = Math.max(0, nextCell.offsetLeft - stickyWidth);
-    scrolledForPeriod.current = periodId;
+    if (!nextId) return;
+    let cancelled = false;
+
+    const alignNextColumn = () => {
+      const scroller = scrollRef.current;
+      const nextCell = nextColRef.current;
+      if (!scroller || !nextCell) return false;
+      const stickyWidth = (MEMBER_COL_W + TARGET_COL_W) * 16;
+      const scrollerRect = scroller.getBoundingClientRect();
+      const cellRect = nextCell.getBoundingClientRect();
+      const delta = cellRect.left - scrollerRect.left - stickyWidth;
+      if (Math.abs(delta) < 1) return true;
+      scroller.scrollLeft += delta;
+      return true;
+    };
+
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        if (!alignNextColumn()) {
+          window.setTimeout(() => {
+            if (!cancelled) alignNextColumn();
+          }, 80);
+        }
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+    };
   }, [ordered, nextId, periodId]);
 
   if (weeks.length === 0) {
@@ -133,10 +168,26 @@ export function ContributionsGrid({
   }
 
   function weekColTone(w: Week, weekIndex: number): string {
-    if (w.id === nextId) return "bg-[#FFF8EB]/80";
-    if (hoveredWeekId === w.id) return "bg-[#FFCD79]/25";
-    if (weekIndex % 2 === 1) return "bg-[var(--cream)]/35";
-    return "bg-white";
+    if (w.id === nextId) return BG.next;
+    if (hoveredWeekId === w.id) return BG.hover;
+    if (weekIndex % 2 === 1) return BG.cream;
+    return BG.white;
+  }
+
+  function headerColTone(w: Week, weekIndex: number): string {
+    const isNext = w.id === nextId;
+    const isPast = w.date < today;
+    const isHovered = hoveredWeekId === w.id;
+    if (isNext) return BG.nextHeader;
+    if (isHovered) return `${BG.hover} text-[var(--navy)]`;
+    if (isPast) {
+      return weekIndex % 2 === 1
+        ? `${BG.cream} text-[var(--muted)]`
+        : `${BG.creamSoft} text-[var(--muted)]`;
+    }
+    return weekIndex % 2 === 1
+      ? `${BG.cream} text-[var(--navy)]`
+      : `${BG.white} text-[var(--navy)]`;
   }
 
   return (
@@ -148,13 +199,13 @@ export function ContributionsGrid({
         <thead>
           <tr>
             <th
-              className="sticky left-0 top-0 z-40 border-b border-r border-[var(--line)] bg-[var(--panel)] px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)]"
+              className={`sticky left-0 top-0 z-40 border-b border-r border-[var(--line)] ${BG.panel} px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)]`}
               style={{ minWidth: `${MEMBER_COL_W}rem`, maxWidth: `${MEMBER_COL_W}rem` }}
             >
               Membre
             </th>
             <th
-              className="sticky top-0 z-40 border-b border-r border-[var(--line)] bg-[var(--panel)] px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)]"
+              className={`sticky top-0 z-40 border-b border-r border-[var(--line)] ${BG.panel} px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)]`}
               style={{
                 left: `${STICKY_LEFT_TARGET}rem`,
                 minWidth: `${TARGET_COL_W}rem`,
@@ -165,8 +216,6 @@ export function ContributionsGrid({
             </th>
             {ordered.map((w, weekIndex) => {
               const isNext = w.id === nextId;
-              const isPast = w.date < today;
-              const isHovered = hoveredWeekId === w.id;
               return (
                 <th
                   key={w.id}
@@ -174,19 +223,7 @@ export function ContributionsGrid({
                   onMouseEnter={() => setHoveredWeekId(w.id)}
                   onMouseLeave={() => setHoveredWeekId(null)}
                   title={formatDate(w.date)}
-                  className={`sticky top-0 z-30 border-b border-[var(--line)] px-2 py-2 text-center text-xs font-semibold whitespace-nowrap shadow-[0_1px_0_var(--line)] ${
-                    isNext
-                      ? "bg-[#1D2D50] text-[#FFCD79]"
-                      : isHovered
-                        ? "bg-[#FFCD79]/55 text-[var(--navy)]"
-                        : isPast
-                          ? weekIndex % 2 === 1
-                            ? "bg-[var(--cream)] text-[var(--muted)]"
-                            : "bg-[#faf6f1] text-[var(--muted)]"
-                          : weekIndex % 2 === 1
-                            ? "bg-[var(--cream)]/70 text-[var(--navy)]"
-                            : "bg-[var(--panel)] text-[var(--navy)]"
-                  }`}
+                  className={`sticky top-0 z-30 border-b border-[var(--line)] px-2 py-2 text-center text-xs font-semibold whitespace-nowrap shadow-[0_1px_0_var(--line)] ${headerColTone(w, weekIndex)}`}
                   style={{ minWidth: "7rem" }}
                 >
                   <span className="block text-[10px] font-medium uppercase tracking-wide opacity-80">
@@ -207,7 +244,7 @@ export function ContributionsGrid({
           {sortedMembers.map((m) => (
             <tr key={m.id} className="group">
               <td
-                className="sticky left-0 z-20 border-b border-r border-[var(--line)] bg-[var(--panel)] px-3 py-2 font-medium text-[var(--navy)] group-hover:bg-[#FFF8EB]"
+                className={`sticky left-0 z-20 border-b border-r border-[var(--line)] ${BG.panel} px-3 py-2 font-medium text-[var(--navy)] group-hover:bg-[#FFF8EB]`}
                 style={{ minWidth: `${MEMBER_COL_W}rem`, maxWidth: `${MEMBER_COL_W}rem` }}
               >
                 <span className="block truncate">
@@ -215,7 +252,7 @@ export function ContributionsGrid({
                 </span>
               </td>
               <td
-                className="sticky z-20 border-b border-r border-[var(--line)] bg-[var(--panel)] px-2 py-2 text-xs tabular-nums text-[var(--muted)] group-hover:bg-[#FFF8EB]"
+                className={`sticky z-20 border-b border-r border-[var(--line)] ${BG.panel} px-2 py-2 text-xs tabular-nums text-[var(--muted)] group-hover:bg-[#FFF8EB]`}
                 style={{
                   left: `${STICKY_LEFT_TARGET}rem`,
                   minWidth: `${TARGET_COL_W}rem`,
@@ -244,7 +281,7 @@ export function ContributionsGrid({
                             ? "border-emerald-200 bg-emerald-50 text-emerald-900"
                             : status === "unpaid"
                               ? "border-red-200 bg-red-50 text-red-800"
-                              : "border-[var(--line)] bg-white/70 text-[var(--muted)]"
+                              : "border-[var(--line)] bg-white text-[var(--muted)]"
                         }`}
                       >
                         {status === "paid"
@@ -275,13 +312,13 @@ export function ContributionsGrid({
         <tfoot>
           <tr>
             <td
-              className="sticky bottom-0 left-0 z-30 border-t border-r border-[var(--line)] bg-[var(--panel)] px-3 py-3 text-xs font-semibold text-[var(--navy)] shadow-[0_-1px_0_var(--line)]"
+              className={`sticky bottom-0 left-0 z-40 border-t border-r border-[var(--line)] ${BG.panel} px-3 py-3 text-xs font-semibold text-[var(--navy)] shadow-[0_-1px_0_var(--line)]`}
               style={{ minWidth: `${MEMBER_COL_W}rem` }}
             >
               Total / rapport
             </td>
             <td
-              className="sticky bottom-0 z-30 border-t border-r border-[var(--line)] bg-[var(--panel)] shadow-[0_-1px_0_var(--line)]"
+              className={`sticky bottom-0 z-40 border-t border-r border-[var(--line)] ${BG.panel} shadow-[0_-1px_0_var(--line)]`}
               style={{ left: `${STICKY_LEFT_TARGET}rem`, minWidth: `${TARGET_COL_W}rem` }}
             />
             {ordered.map((w, weekIndex) => {
@@ -297,7 +334,7 @@ export function ContributionsGrid({
                   key={w.id}
                   onMouseEnter={() => setHoveredWeekId(w.id)}
                   onMouseLeave={() => setHoveredWeekId(null)}
-                  className={`sticky bottom-0 z-20 border-t border-[var(--line)] px-2 py-3 align-top shadow-[0_-1px_0_var(--line)] ${weekColTone(w, weekIndex)}`}
+                  className={`sticky bottom-0 z-30 border-t border-[var(--line)] px-2 py-3 align-top shadow-[0_-1px_0_var(--line)] ${weekColTone(w, weekIndex)}`}
                 >
                   <p className="mb-2 text-center text-[11px] font-semibold tabular-nums text-[var(--navy)]">
                     {formatFcfa(total)}
