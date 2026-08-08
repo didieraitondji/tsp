@@ -21,7 +21,16 @@ function toPercentInput(rate: number): string {
   return String(Number(p.toFixed(3)));
 }
 
-export function AdminSettingsForm({ settings }: { settings: Settings }) {
+export function AdminSettingsForm({
+  settings,
+  periodId,
+  periodName,
+}: {
+  settings: Settings;
+  /** Si fourni, enregistre les règles sur cette tontine. */
+  periodId?: string;
+  periodName?: string | null;
+}) {
   const [state, formAction, pending] = useActionState<SaveSettingsState, FormData>(
     saveSettingsAction,
     null
@@ -36,10 +45,12 @@ export function AdminSettingsForm({ settings }: { settings: Settings }) {
   const [exampleAmount, setExampleAmount] = useState("2000");
 
   useEffect(() => {
-    if (state?.ok) {
-      // reset password field by remounting form success banner only
-    }
-  }, [state?.ok]);
+    setInterestMonthly(toPercentInput(settings.interestRateMonthly));
+    setInterestExtra(toPercentInput(settings.interestRateExtra));
+    setWithdrawalFee(toPercentInput(settings.loanWithdrawalFeeRate));
+    setContribMin(String(settings.contributionMin));
+    setContribStd(String(settings.contributionStandard));
+  }, [settings]);
 
   const preview = useMemo(() => {
     const amount = Number(exampleAmount) || 0;
@@ -57,6 +68,13 @@ export function AdminSettingsForm({ settings }: { settings: Settings }) {
 
   return (
     <form action={formAction} className="space-y-6">
+      {periodId ? <input type="hidden" name="periodId" value={periodId} /> : null}
+      {periodName ? (
+        <p className="rounded-xl border border-[#FFCD79]/50 bg-[#FFF8EB] px-4 py-3 text-sm text-[var(--navy)]">
+          Modification des règles de la tontine{" "}
+          <strong className="font-semibold">« {periodName} »</strong>.
+        </p>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryCard
           label="Cotisation standard"
@@ -267,8 +285,9 @@ export function AdminSettingsForm({ settings }: { settings: Settings }) {
           <div className="flex gap-3 rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-950">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
             <p>
-              Ces règles servent de modèle par défaut. Les tontines déjà créées conservent leurs
-              propres barèmes jusqu’à mise à jour côté Gestion.
+              {periodId
+                ? "Ces barèmes s’appliquent aux prochaines opérations de cette tontine (cotisations, prêts, pénalités). Les prêts déjà créés conservent leurs frais figés."
+                : "Ces règles servent de modèle pour le contexte courant. Chaque tontine peut aussi avoir ses propres barèmes dans Gestion → Paramètres → Règles."}
             </p>
           </div>
           <div className="max-w-sm">

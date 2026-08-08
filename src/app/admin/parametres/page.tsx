@@ -21,11 +21,11 @@ export default async function ParametresPage() {
             Paramètres
           </h1>
           <p className="mt-2 max-w-xl text-[var(--muted)]">
-            Règles financières du modèle Solidarité Plus
+            Modèle financier Solidarité Plus
             {activeCount > 0
               ? ` · ${activeCount} tontine${activeCount > 1 ? "s" : ""} active${activeCount > 1 ? "s" : ""}`
               : ""}
-            .
+            . Les gestionnaires peuvent aussi personnaliser chaque tontine dans Gestion.
           </p>
         </div>
         <Link

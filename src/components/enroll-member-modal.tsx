@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { UsersRound } from "lucide-react";
+import { CheckCircle2, UsersRound } from "lucide-react";
 import { enrollMemberAction } from "@/app/actions";
 import { Modal } from "@/components/modal";
 import { SubmitButton } from "@/components/submit-button";
@@ -36,24 +36,38 @@ export function EnrollMemberModal({
       ? defaultPeriodId
       : tontines[0]?.id) || "";
   const [periodId, setPeriodId] = useState(initialPeriodId);
+  /** Inscriptions faites dans cette session (avant revalidation serveur). */
+  const [sessionEnrolled, setSessionEnrolled] = useState<Record<string, string[]>>({});
+  const [formKey, setFormKey] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [lastSuccess, setLastSuccess] = useState<string | null>(null);
 
   const availableToEnroll = useMemo(() => {
     const tontine = tontines.find((t) => t.id === periodId);
     if (!tontine) return [];
-    const enrolled = new Set(tontine.enrolledMemberIds);
+    const enrolled = new Set([
+      ...tontine.enrolledMemberIds,
+      ...(sessionEnrolled[periodId] || []),
+    ]);
     return directoryMembers.filter((m) => !enrolled.has(m.id));
-  }, [tontines, directoryMembers, periodId]);
+  }, [tontines, directoryMembers, periodId, sessionEnrolled]);
 
   const selectedName = tontines.find((t) => t.id === periodId)?.name;
+
+  function openModal() {
+    setPeriodId(initialPeriodId);
+    setSessionEnrolled({});
+    setError(null);
+    setLastSuccess(null);
+    setFormKey((k) => k + 1);
+    setOpen(true);
+  }
 
   return (
     <>
       <button
         type="button"
-        onClick={() => {
-          setPeriodId(initialPeriodId);
-          setOpen(true);
-        }}
+        onClick={openModal}
         disabled={tontines.length === 0 || directoryMembers.length === 0}
         className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[var(--line)] bg-white px-4 py-2.5 text-sm font-semibold text-[var(--navy)] transition hover:border-[#FFCD79] hover:bg-[#FFF8EB] disabled:cursor-not-allowed disabled:opacity-50"
       >
@@ -65,7 +79,7 @@ export function EnrollMemberModal({
         open={open}
         onClose={() => setOpen(false)}
         title="Inscrire à la tontine"
-        description="Choisissez la tontine, puis un membre de l’annuaire pas encore inscrit à celle-ci."
+        description="La modale reste ouverte pour enchaîner plusieurs inscriptions. Fermez avec × quand vous avez terminé."
       >
         {tontines.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">
@@ -73,9 +87,31 @@ export function EnrollMemberModal({
           </p>
         ) : (
           <form
+            key={formKey}
             action={async (fd) => {
-              await enrollMemberAction(fd);
-              setOpen(false);
+              setError(null);
+              setLastSuccess(null);
+              const result = await enrollMemberAction(fd);
+              if (result?.error) {
+                setError(result.error);
+                return;
+              }
+              const enrolledId = result?.memberId || String(fd.get("memberId") || "");
+              const enrolledPeriod = result?.periodId || periodId;
+              if (enrolledId && enrolledPeriod) {
+                setSessionEnrolled((prev) => ({
+                  ...prev,
+                  [enrolledPeriod]: [...(prev[enrolledPeriod] || []), enrolledId],
+                }));
+                const m = directoryMembers.find((d) => d.id === enrolledId);
+                setLastSuccess(
+                  m
+                    ? `${m.lastName} ${m.firstName} inscrit${selectedName ? ` à « ${selectedName} »` : ""}.`
+                    : "Membre inscrit."
+                );
+              }
+              // Conserve la tontine, réinitialise le reste du formulaire
+              setFormKey((k) => k + 1);
             }}
             className="space-y-3.5"
           >
@@ -85,7 +121,12 @@ export function EnrollMemberModal({
                 name="periodId"
                 required
                 value={periodId}
-                onChange={(e) => setPeriodId(e.target.value)}
+                onChange={(e) => {
+                  setPeriodId(e.target.value);
+                  setLastSuccess(null);
+                  setError(null);
+                  setFormKey((k) => k + 1);
+                }}
               >
                 {tontines.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -102,7 +143,7 @@ export function EnrollMemberModal({
                   {selectedName ? ` à « ${selectedName} »` : ""}.
                 </p>
               ) : (
-                <Select key={periodId} name="memberId" required defaultValue="">
+                <Select name="memberId" required defaultValue="">
                   <option value="" disabled>
                     Choisir…
                   </option>
@@ -126,13 +167,26 @@ export function EnrollMemberModal({
                 <option value="Suspendu">Suspendu</option>
               </Select>
             </div>
+
+            {lastSuccess && (
+              <p className="flex items-start gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                {lastSuccess}
+              </p>
+            )}
+            {error && (
+              <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                {error}
+              </p>
+            )}
+
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setOpen(false)}
                 className="cursor-pointer rounded-full border border-[var(--line)] px-4 py-2 text-sm font-medium text-[var(--navy)] transition hover:bg-[var(--cream)]"
               >
-                Annuler
+                Terminer
               </button>
               <SubmitButton
                 className="!rounded-full"

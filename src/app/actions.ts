@@ -244,7 +244,7 @@ export async function saveSettingsAction(
   _prev: SaveSettingsState,
   formData: FormData
 ): Promise<SaveSettingsState> {
-  await requireRole(["SUPER_ADMIN"]);
+  await requireRole(["SUPER_ADMIN", "GESTIONNAIRE"]);
   const password = String(formData.get("password") || "");
   if (!password) return { error: "Mot de passe requis." };
 
@@ -267,8 +267,18 @@ export async function saveSettingsAction(
   });
   if (!parsed.success) return { error: "Données invalides. Vérifiez les champs." };
 
-  await settingsRepo.save(parsed.data);
-  await audit("settings.update");
+  const periodId = String(formData.get("periodId") || "").trim();
+  if (periodId) {
+    const meta = await readMeta();
+    const period = meta.periods.find((p) => p.id === periodId);
+    if (!period) return { error: "Tontine introuvable." };
+    await writeObjectForPeriodId(periodId, "settings", parsed.data);
+    await audit("settings.update", period.name);
+  } else {
+    await settingsRepo.save(parsed.data);
+    await audit("settings.update");
+  }
+
   revalidatePath("/admin/parametres");
   revalidatePath("/gestion");
   revalidatePath("/gestion/parametres");
@@ -496,29 +506,35 @@ export async function deleteMemberAction(formData: FormData) {
 }
 
 /** Inscrit un membre de l’annuaire à une tontine choisie (inscriptions ouvertes). */
-export async function enrollMemberAction(formData: FormData) {
+export async function enrollMemberAction(
+  formData: FormData
+): Promise<{ ok?: boolean; error?: string; memberId?: string; periodId?: string } | void> {
   await requireRole(["SUPER_ADMIN", "GESTIONNAIRE"]);
   const memberId = String(formData.get("memberId") || "").trim();
   const periodId = String(formData.get("periodId") || "").trim();
-  if (!memberId || !periodId) return;
+  if (!memberId || !periodId) return { error: "Tontine et membre requis." };
 
   const settings = await settingsRepo.get();
   const enrollmentParsed = enrollmentFieldsSchema.safeParse({
     status: formData.get("status") || "Actif",
     weeklyTarget: Number(formData.get("weeklyTarget") || settings.contributionMin),
   });
-  if (!enrollmentParsed.success) return;
+  if (!enrollmentParsed.success) return { error: "Données d’inscription invalides." };
 
   const meta = await readMeta();
   const period = meta.periods.find((p) => p.id === periodId);
-  if (!period || period.status === "closed" || period.enrollmentsOpen === false) return;
+  if (!period || period.status === "closed" || period.enrollmentsOpen === false) {
+    return { error: "Cette tontine n’accepte plus d’inscriptions." };
+  }
 
   const members = await globalMembersRepo.all();
   const member = members.find((m) => m.id === memberId);
-  if (!member) return;
+  if (!member) return { error: "Membre introuvable." };
 
   const enrollments = await readCollectionForPeriodId<Enrollment>(periodId, "enrollments");
-  if (enrollments.some((e) => e.memberId === memberId)) return;
+  if (enrollments.some((e) => e.memberId === memberId)) {
+    return { error: "Ce membre est déjà inscrit à cette tontine." };
+  }
 
   const enrollment: Enrollment = {
     id: newId("ENR"),
@@ -530,7 +546,7 @@ export async function enrollMemberAction(formData: FormData) {
   await writeCollectionForPeriod(period, "enrollments", [...enrollments, enrollment]);
   await audit("member.enroll", `${member.lastName} ${member.firstName} → ${period.name}`);
   revalidatePath("/gestion/membres");
-  return;
+  return { ok: true, memberId, periodId };
 }
 
 export async function addWeekAction(formData: FormData) {

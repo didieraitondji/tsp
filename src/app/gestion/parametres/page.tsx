@@ -17,7 +17,7 @@ import {
 } from "@/app/actions";
 import { CreateTontineModal } from "@/components/create-tontine-modal";
 import { DeletePeriodButton } from "@/components/delete-period-button";
-import { EditWithdrawalFeeButton } from "@/components/edit-withdrawal-fee-button";
+import { AdminSettingsForm } from "@/components/admin-settings-form";
 import { PasswordConfirmButton } from "@/components/password-confirm-button";
 import { listPeriods } from "@/lib/db/periods";
 import { DEFAULT_SETTINGS } from "@/lib/db/defaults";
@@ -76,8 +76,8 @@ export default async function GestionParametresPage({
           Paramètres
         </h1>
         <p className="mt-2 max-w-2xl text-[var(--muted)]">
-          Gérez les tontines, consultez les règles financières et les outils opérationnels de
-          l’espace gestion.
+          Gérez les tontines, personnalisez les règles financières et accédez aux outils
+          opérationnels.
         </p>
       </div>
 
@@ -368,101 +368,97 @@ function ReglesSection({
   settings: Settings;
   canWrite: boolean;
 }) {
-  const rows = [
-    { label: "Organisation", value: settings.organizationName },
-    { label: "Cotisation minimum", value: formatFcfa(settings.contributionMin) },
-    { label: "Cotisation standard", value: formatFcfa(settings.contributionStandard) },
-    { label: "Taux d’intérêt mensuel", value: formatPercent(settings.interestRateMonthly) },
-    {
-      label: "Taux supplémentaire (impayé)",
-      value: formatPercent(settings.interestRateExtra),
-    },
-    {
-      label: "Frais de retrait prêt",
-      value: formatPercent(settings.loanWithdrawalFeeRate),
-      highlight: true,
-      hint: "Prélevé sur la caisse au décaissement (montant + frais).",
-    },
-    {
-      label: "Durée max prêt",
-      value: `${settings.loanMaxDurationMonths} mois`,
-    },
-    {
-      label: "Pénalité retard cotisation",
-      value: formatFcfa(settings.penaltyLateContribution),
-    },
-    { label: "Pénalité absence", value: formatFcfa(settings.penaltyAbsence) },
-    { label: "Plafond de membres", value: String(settings.maxMembers) },
-  ];
-
   if (periods.length === 0) {
     return (
       <p className="rounded-2xl border border-[var(--line)] bg-[var(--panel)] px-5 py-10 text-center text-sm text-[var(--muted)]">
-        Créez une tontine pour consulter ses règles financières.
+        Créez une tontine pour consulter ou modifier ses règles financières.
       </p>
     );
   }
 
   return (
-    <Panel
-      title="Règles financières"
-      description={
-        periodName
-          ? `Barèmes de « ${periodName} ». Les frais de retrait s’appliquent à chaque nouveau prêt.`
-          : "Barèmes appliqués aux cotisations, prêts et pénalités."
-      }
-    >
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-          Tontine
-        </span>
-        {periods.map((p) => (
-          <Link
-            key={p.id}
-            href={`/gestion/parametres?section=regles&tontine=${p.id}`}
-            className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-              p.id === periodId
-                ? "bg-[#1D2D50] text-[#FFCD79]"
-                : "border border-[var(--line)] text-[var(--navy)] hover:bg-[var(--cream)]"
-            }`}
-          >
-            {p.name}
-          </Link>
-        ))}
-        {canWrite && periodId && periodName && (
-          <EditWithdrawalFeeButton
-            periodId={periodId}
-            tontineName={periodName}
-            currentRate={settings.loanWithdrawalFeeRate}
-          />
-        )}
-      </div>
+    <div className="space-y-5">
+      <Panel
+        title="Règles financières"
+        description={
+          periodName
+            ? canWrite
+              ? `Personnalisez les barèmes de « ${periodName} » (cotisations, prêts, pénalités).`
+              : `Barèmes de « ${periodName} » (lecture seule).`
+            : "Barèmes appliqués aux cotisations, prêts et pénalités."
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+            Tontine
+          </span>
+          {periods.map((p) => (
+            <Link
+              key={p.id}
+              href={`/gestion/parametres?section=regles&tontine=${p.id}`}
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                p.id === periodId
+                  ? "bg-[#1D2D50] text-[#FFCD79]"
+                  : "border border-[var(--line)] text-[var(--navy)] hover:bg-[var(--cream)]"
+              }`}
+            >
+              {p.name}
+            </Link>
+          ))}
+        </div>
+      </Panel>
 
-      <dl className="grid gap-3 sm:grid-cols-2">
-        {rows.map((row) => (
-          <div
-            key={row.label}
-            className={`rounded-xl border px-4 py-3 ${
-              "highlight" in row && row.highlight
-                ? "border-[#FFCD79] bg-[#FFF8EB]"
-                : "border-[var(--line)] bg-[var(--cream)]/40"
-            }`}
-          >
-            <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-              {row.label}
-            </dt>
-            <dd className="mt-1 text-sm font-semibold text-[var(--navy)]">{row.value}</dd>
-            {"hint" in row && row.hint ? (
-              <p className="mt-1 text-[11px] text-[var(--muted)]">{row.hint}</p>
-            ) : null}
-          </div>
-        ))}
-      </dl>
-      <p className="mt-5 text-xs leading-relaxed text-[var(--muted)]">
-        Les frais de retrait sont configurables ci-dessus (confirmation mot de passe). Ils sont
-        figés sur chaque prêt au moment de sa création.
-      </p>
-    </Panel>
+      {canWrite && periodId ? (
+        <AdminSettingsForm
+          key={periodId}
+          settings={settings}
+          periodId={periodId}
+          periodName={periodName}
+        />
+      ) : (
+        <Panel title="Barèmes en vigueur" description="Consultation uniquement.">
+          <dl className="grid gap-3 sm:grid-cols-2">
+            {[
+              { label: "Organisation", value: settings.organizationName },
+              { label: "Cotisation minimum", value: formatFcfa(settings.contributionMin) },
+              { label: "Cotisation standard", value: formatFcfa(settings.contributionStandard) },
+              {
+                label: "Taux d’intérêt mensuel",
+                value: formatPercent(settings.interestRateMonthly),
+              },
+              {
+                label: "Taux supplémentaire (impayé)",
+                value: formatPercent(settings.interestRateExtra),
+              },
+              {
+                label: "Frais de retrait prêt",
+                value: formatPercent(settings.loanWithdrawalFeeRate),
+              },
+              {
+                label: "Durée max prêt",
+                value: `${settings.loanMaxDurationMonths} mois`,
+              },
+              {
+                label: "Pénalité retard cotisation",
+                value: formatFcfa(settings.penaltyLateContribution),
+              },
+              { label: "Pénalité absence", value: formatFcfa(settings.penaltyAbsence) },
+              { label: "Plafond de membres", value: String(settings.maxMembers) },
+            ].map((row) => (
+              <div
+                key={row.label}
+                className="rounded-xl border border-[var(--line)] bg-[var(--cream)]/40 px-4 py-3"
+              >
+                <dt className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  {row.label}
+                </dt>
+                <dd className="mt-1 text-sm font-semibold text-[var(--navy)]">{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </Panel>
+      )}
+    </div>
   );
 }
 
