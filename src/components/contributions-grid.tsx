@@ -327,7 +327,9 @@ export function ContributionsGrid({
                         }`}
                       >
                         {status === "paid"
-                          ? formatFcfa(amount).replace(" FCFA", "")
+                          ? w.date > today
+                            ? `Av. ${formatFcfa(amount).replace(" FCFA", "")}`
+                            : formatFcfa(amount).replace(" FCFA", "")
                           : status === "unpaid"
                             ? "Impayé"
                             : "—"}

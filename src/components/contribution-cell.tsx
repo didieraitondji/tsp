@@ -114,6 +114,10 @@ export function ContributionCell({
   const isLocked =
     localLocked && (localStatus === "paid" || localStatus === "unpaid");
   const canMarkUnpaid = weekDate <= todayIsoLocal();
+  const paidLabel = canMarkUnpaid ? "Payé" : "Avancé";
+  const paidTitle = canMarkUnpaid
+    ? `Payé · ${formatFcfa(weeklyTarget)}`
+    : `Avance · ${formatFcfa(weeklyTarget)}`;
 
   const mark = (nextStatus: ContributionStatus) => {
     if (isLocked || pending) return;
@@ -166,14 +170,22 @@ export function ContributionCell({
                 ? "border-emerald-200 bg-gradient-to-b from-emerald-50 to-emerald-100/80 text-emerald-900"
                 : "border-red-200 bg-gradient-to-b from-red-50 to-red-100/70 text-red-800"
             }`}
-            title={localStatus === "paid" ? formatFcfa(localAmount) : "Impayé"}
+            title={
+              localStatus === "paid"
+                ? canMarkUnpaid
+                  ? formatFcfa(localAmount)
+                  : `Avance · ${formatFcfa(localAmount)}`
+                : "Impayé"
+            }
           >
             <Lock className="h-3 w-3 shrink-0 opacity-70" strokeWidth={1.75} />
             {localStatus === "paid" ? (
               <>
                 <Check className="h-3 w-3 shrink-0" strokeWidth={2.25} />
                 <span className="tabular-nums">
-                  {formatFcfa(localAmount).replace(" FCFA", "")}
+                  {canMarkUnpaid
+                    ? formatFcfa(localAmount).replace(" FCFA", "")
+                    : `Av. ${formatFcfa(localAmount).replace(" FCFA", "")}`}
                 </span>
               </>
             ) : (
@@ -204,9 +216,9 @@ export function ContributionCell({
                   ? "border-emerald-300 bg-emerald-50 text-emerald-900"
                   : "border-[var(--line)] bg-white text-[var(--navy)] hover:border-emerald-300 hover:bg-emerald-50/60"
               }`}
-              title={`Payé · ${formatFcfa(weeklyTarget)}`}
+              title={paidTitle}
             >
-              Payé
+              {paidLabel}
             </button>
             {canMarkUnpaid && (
               <button
