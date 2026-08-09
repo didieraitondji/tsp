@@ -48,6 +48,7 @@ export function ContributionsGrid({
   contributions,
   penaltyAmount,
   readOnly = false,
+  onContributionsChange,
 }: {
   periodId: string;
   periodicity?: Periodicity | null;
@@ -56,6 +57,7 @@ export function ContributionsGrid({
   contributions: Contribution[];
   penaltyAmount: number;
   readOnly?: boolean;
+  onContributionsChange?: (next: Contribution[]) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const nextColRef = useRef<HTMLTableCellElement>(null);
@@ -93,15 +95,15 @@ export function ContributionsGrid({
           locked: next.locked,
           status: next.status,
         };
-        if (idx >= 0) {
-          const copy = [...prev];
-          copy[idx] = { ...prev[idx], ...patch };
-          return copy;
-        }
-        return [...prev, patch];
+        const updated =
+          idx >= 0
+            ? prev.map((c, i) => (i === idx ? { ...c, ...patch } : c))
+            : [...prev, patch];
+        onContributionsChange?.(updated);
+        return updated;
       });
     },
-    []
+    [onContributionsChange]
   );
 
   const sortedMembers = useMemo(

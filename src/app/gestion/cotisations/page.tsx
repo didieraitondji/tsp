@@ -1,6 +1,6 @@
 import { AddWeekModal } from "@/components/add-week-modal";
+import { CotisationsBoards } from "@/components/cotisations-boards";
 import { CotisationsTontineFilter } from "@/components/cotisations-tontine-filter";
-import { ContributionsGrid } from "@/components/contributions-grid";
 import { listEnrolledForPeriod } from "@/lib/db/collections";
 import { DEFAULT_SETTINGS } from "@/lib/db/defaults";
 import { listPeriods } from "@/lib/db/periods";
@@ -77,26 +77,16 @@ export default async function CotisationsPage({
           Créez une tontine pour saisir les cotisations.
         </p>
       ) : (
-        <section className="rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-5 py-3">
-            <p className="text-sm font-medium text-[var(--navy)]">
-              {period.name}
-              <span className="ml-2 text-xs font-normal text-[var(--muted)]">
-                {weeks.length} séance{weeks.length === 1 ? "" : "s"} ·{" "}
-                {members.filter((m) => m.status === "Actif").length} actifs
-              </span>
-            </p>
-          </div>
-          <ContributionsGrid
-            periodId={period.id}
-            periodicity={period.periodicity}
-            members={members}
-            weeks={weeks}
-            contributions={contributions}
-            penaltyAmount={settings.penaltyLateContribution}
-            readOnly={!canWrite}
-          />
-        </section>
+        <CotisationsBoards
+          periodId={period.id}
+          periodName={period.name}
+          periodicity={period.periodicity}
+          members={members}
+          weeks={weeks}
+          contributions={contributions}
+          penaltyAmount={settings.penaltyLateContribution}
+          readOnly={!canWrite}
+        />
       )}
     </div>
   );

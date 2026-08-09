@@ -88,3 +88,71 @@ export function contributionAmount(
 ): number {
   return map.get(`${memberId}:${weekId}`)?.amount ?? 0;
 }
+
+export type MonthColumn = {
+  key: string; // YYYY-MM
+  year: number;
+  month: number; // 1-12
+  label: string;
+};
+
+/** Colonnes mois dérivées des séances, ordre chronologique (ancien → récent). */
+export function monthsFromWeeks(weeks: Week[]): MonthColumn[] {
+  const seen = new Map<string, MonthColumn>();
+  for (const w of weeks) {
+    const year = w.year || Number(w.date.slice(0, 4));
+    const month = w.month || Number(w.date.slice(5, 7));
+    if (!year || !month) continue;
+    const key = `${year}-${String(month).padStart(2, "0")}`;
+    if (seen.has(key)) continue;
+    const label = new Date(year, month - 1, 1).toLocaleDateString("fr-FR", {
+      month: "long",
+      year: "numeric",
+    });
+    const capitalized = label.replace(/^./, (c) => c.toUpperCase());
+    seen.set(key, { key, year, month, label: capitalized });
+  }
+  return [...seen.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/** Totaux membre × mois (uniquement montants payés > 0). */
+export function buildMonthlyTotals(
+  weeks: Week[],
+  contributions: Contribution[],
+  memberIds: string[]
+): {
+  months: MonthColumn[];
+  /** memberId → monthKey → amount */
+  amounts: Map<string, Map<string, number>>;
+  /** monthKey → total */
+  monthTotals: Map<string, number>;
+} {
+  const months = monthsFromWeeks(weeks);
+  const weekToMonth = new Map<string, string>();
+  for (const w of weeks) {
+    const year = w.year || Number(w.date.slice(0, 4));
+    const month = w.month || Number(w.date.slice(5, 7));
+    weekToMonth.set(w.id, `${year}-${String(month).padStart(2, "0")}`);
+  }
+
+  const amounts = new Map<string, Map<string, number>>();
+  for (const id of memberIds) amounts.set(id, new Map());
+
+  for (const c of contributions) {
+    if (!(c.amount > 0)) continue;
+    const monthKey = weekToMonth.get(c.weekId);
+    if (!monthKey) continue;
+    const row = amounts.get(c.memberId);
+    if (!row) continue;
+    row.set(monthKey, (row.get(monthKey) ?? 0) + c.amount);
+  }
+
+  const monthTotals = new Map<string, number>();
+  for (const m of months) {
+    let sum = 0;
+    for (const id of memberIds) sum += amounts.get(id)?.get(m.key) ?? 0;
+    monthTotals.set(m.key, sum);
+  }
+
+  return { months, amounts, monthTotals };
+}
