@@ -45,6 +45,8 @@ export interface Settings {
   year: number;
   cashOpeningBalance: number;
   organizationName: string;
+  /** Si true, déverrouiller une cotisation exige le mot de passe. */
+  requirePasswordToUnlockContribution: boolean;
 }
 
 /** Annuaire global — identité du membre (hors inscription à une tontine). */

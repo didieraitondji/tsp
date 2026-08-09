@@ -444,6 +444,13 @@ function ReglesSection({
               },
               { label: "Pénalité absence", value: formatFcfa(settings.penaltyAbsence) },
               { label: "Plafond de membres", value: String(settings.maxMembers) },
+              {
+                label: "MDP pour déverrouiller cotisation",
+                value:
+                  settings.requirePasswordToUnlockContribution !== false
+                    ? "Activé"
+                    : "Désactivé",
+              },
             ].map((row) => (
               <div
                 key={row.label}

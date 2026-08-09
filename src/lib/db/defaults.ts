@@ -13,4 +13,5 @@ export const DEFAULT_SETTINGS: Settings = {
   year: 2026,
   cashOpeningBalance: 0,
   organizationName: "Solidarité Plus",
+  requirePasswordToUnlockContribution: true,
 };

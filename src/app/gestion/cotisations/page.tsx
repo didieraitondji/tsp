@@ -94,6 +94,7 @@ export default async function CotisationsPage({
           weeks={weeks}
           contributions={contributions}
           penaltyAmount={settings.penaltyLateContribution}
+          requirePasswordToUnlock={settings.requirePasswordToUnlockContribution !== false}
           readOnly={!canWrite}
           initialTab={tab}
         />

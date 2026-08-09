@@ -54,6 +54,7 @@ export function ContributionsGrid({
   weeks,
   contributions,
   penaltyAmount,
+  requirePasswordToUnlock = true,
   readOnly = false,
   onContributionsChange,
   onMemberTargetChange,
@@ -64,6 +65,7 @@ export function ContributionsGrid({
   weeks: Week[];
   contributions: Contribution[];
   penaltyAmount: number;
+  requirePasswordToUnlock?: boolean;
   readOnly?: boolean;
   onContributionsChange?: (next: Contribution[]) => void;
   onMemberTargetChange?: (memberId: string, weeklyTarget: number) => void;
@@ -342,6 +344,7 @@ export function ContributionsGrid({
                         weekDate={w.date}
                         weeklyTarget={m.weeklyTarget}
                         penaltyAmount={penaltyAmount}
+                        requirePasswordToUnlock={requirePasswordToUnlock}
                         amount={amount}
                         status={status}
                         locked={locked}

@@ -42,6 +42,7 @@ export const settingsSchema = z.object({
   year: z.number().int(),
   cashOpeningBalance: z.number(),
   organizationName: z.string().min(1),
+  requirePasswordToUnlockContribution: z.boolean(),
 });
 
 export const createUserSchema = z.object({

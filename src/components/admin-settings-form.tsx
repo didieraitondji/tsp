@@ -130,7 +130,7 @@ export function AdminSettingsForm({
 
       <Section
         title="Cotisations"
-        description="Montants de référence pour les séances."
+        description="Montants de référence et sécurité de la grille."
         icon={<Coins className="h-4 w-4" strokeWidth={1.75} />}
       >
         <div className="grid gap-4 sm:grid-cols-2">
@@ -155,6 +155,24 @@ export function AdminSettingsForm({
             />
           </div>
         </div>
+        <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--cream)]/50 px-4 py-3">
+          <input
+            type="checkbox"
+            name="requirePasswordToUnlockContribution"
+            value="on"
+            defaultChecked={settings.requirePasswordToUnlockContribution !== false}
+            className="mt-1 h-4 w-4 rounded border-[var(--line)] text-[var(--navy)] accent-[#1D2D50]"
+          />
+          <span>
+            <span className="block text-sm font-semibold text-[var(--navy)]">
+              Mot de passe pour déverrouiller une cotisation
+            </span>
+            <span className="mt-0.5 block text-xs text-[var(--muted)]">
+              Activé : confirmation par mot de passe. Désactivé : déverrouillage immédiat
+              (utile pour valider la grille avec le comptable).
+            </span>
+          </span>
+        </label>
       </Section>
 
       <Section

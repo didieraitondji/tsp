@@ -19,6 +19,7 @@ export function ContributionCell({
   weekDate,
   weeklyTarget,
   penaltyAmount,
+  requirePasswordToUnlock = true,
   amount,
   status,
   locked,
@@ -31,6 +32,7 @@ export function ContributionCell({
   weekDate: string;
   weeklyTarget: number;
   penaltyAmount: number;
+  requirePasswordToUnlock?: boolean;
   amount: number;
   status: "none" | ContributionStatus;
   locked: boolean;
@@ -160,6 +162,21 @@ export function ContributionCell({
     });
   };
 
+  const requestUnlock = () => {
+    if (unlocking) return;
+    if (requirePasswordToUnlock) {
+      setUnlockOpen(true);
+      return;
+    }
+    const fd = new FormData();
+    fd.set("periodId", periodId);
+    fd.set("memberId", memberId);
+    fd.set("weekId", weekId);
+    start(() => {
+      formAction(fd);
+    });
+  };
+
   return (
     <div className="flex min-w-[6.25rem] flex-col items-stretch gap-0.5">
       {isLocked ? (
@@ -194,13 +211,23 @@ export function ContributionCell({
           </div>
           <button
             type="button"
-            onClick={() => setUnlockOpen(true)}
-            className="inline-flex cursor-pointer items-center justify-center gap-0.5 text-[10px] font-medium text-[var(--muted)] transition hover:text-[var(--navy)]"
-            title="Déverrouiller"
+            onClick={requestUnlock}
+            disabled={unlocking}
+            className="inline-flex cursor-pointer items-center justify-center gap-0.5 text-[10px] font-medium text-[var(--muted)] transition hover:text-[var(--navy)] disabled:opacity-60"
+            title={
+              requirePasswordToUnlock
+                ? "Déverrouiller (mot de passe)"
+                : "Déverrouiller"
+            }
           >
             <Unlock className="h-3 w-3" strokeWidth={1.75} />
-            Déverr.
+            {unlocking && !requirePasswordToUnlock ? "…" : "Déverr."}
           </button>
+          {state?.error && !requirePasswordToUnlock && (
+            <p className="text-[9px] leading-tight text-red-600" title={state.error}>
+              {state.error.length > 24 ? "Erreur" : state.error}
+            </p>
+          )}
         </>
       ) : (
         <>

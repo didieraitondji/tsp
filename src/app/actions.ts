@@ -275,6 +275,8 @@ export async function saveSettingsAction(
     year: Number(formData.get("year")),
     cashOpeningBalance: Number(formData.get("cashOpeningBalance")),
     organizationName: String(formData.get("organizationName") || "Solidarité Plus"),
+    requirePasswordToUnlockContribution:
+      formData.get("requirePasswordToUnlockContribution") === "on",
   });
   if (!parsed.success) return { error: "Données invalides. Vérifiez les champs." };
 
@@ -293,6 +295,7 @@ export async function saveSettingsAction(
   revalidatePath("/admin/parametres");
   revalidatePath("/gestion");
   revalidatePath("/gestion/parametres");
+  revalidatePath("/gestion/cotisations");
   revalidatePath("/gestion/prets");
   return { ok: true };
 }
@@ -809,10 +812,14 @@ export async function unlockContributionAction(
   const weekId = String(formData.get("weekId") || "").trim();
   const password = String(formData.get("password") || "");
   if (!periodId || !memberId || !weekId) return { error: "Données manquantes." };
-  if (!password) return { error: "Mot de passe requis." };
 
-  const ok = await verifySessionPassword(password);
-  if (!ok) return { error: "Mot de passe incorrect." };
+  const settings = await readObjectForPeriodId(periodId, "settings", DEFAULT_SETTINGS);
+  const requirePassword = settings.requirePasswordToUnlockContribution !== false;
+  if (requirePassword) {
+    if (!password) return { error: "Mot de passe requis." };
+    const ok = await verifySessionPassword(password);
+    if (!ok) return { error: "Mot de passe incorrect." };
+  }
 
   try {
     await unlockContribution({ periodId, memberId, weekId });

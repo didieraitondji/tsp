@@ -17,6 +17,7 @@ export function CotisationsBoards({
   weeks,
   contributions: initialContributions,
   penaltyAmount,
+  requirePasswordToUnlock = true,
   readOnly,
   initialTab = "seances",
 }: {
@@ -27,6 +28,7 @@ export function CotisationsBoards({
   weeks: Week[];
   contributions: Contribution[];
   penaltyAmount: number;
+  requirePasswordToUnlock?: boolean;
   readOnly: boolean;
   initialTab?: CotisationsTab;
 }) {
@@ -116,6 +118,7 @@ export function CotisationsBoards({
           weeks={weeks}
           contributions={contributions}
           penaltyAmount={penaltyAmount}
+          requirePasswordToUnlock={requirePasswordToUnlock}
           readOnly={readOnly}
           onContributionsChange={setContributions}
           onMemberTargetChange={handleTargetChange}
