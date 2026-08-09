@@ -66,6 +66,7 @@ export function ContributionsGrid({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const nextColRef = useRef<HTMLTableCellElement>(null);
+  const alignedForPeriodRef = useRef<string | null>(null);
   const today = todayIsoLocal();
   const [hoveredWeekId, setHoveredWeekId] = useState<string | null>(null);
 
@@ -123,9 +124,10 @@ export function ContributionsGrid({
     [members]
   );
 
-  // Aligne la colonne « Prochaine » juste après Membre/Cible (comme avant).
+  // Aligne « Prochaine » une seule fois par tontine (pas à chaque marquage).
   useEffect(() => {
     if (!nextId) return;
+    if (alignedForPeriodRef.current === periodId) return;
     let cancelled = false;
 
     const alignNextColumn = () => {
@@ -144,9 +146,12 @@ export function ContributionsGrid({
     const id = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         if (cancelled) return;
-        if (!alignNextColumn()) {
+        if (alignNextColumn()) {
+          alignedForPeriodRef.current = periodId;
+        } else {
           window.setTimeout(() => {
-            if (!cancelled) alignNextColumn();
+            if (cancelled) return;
+            if (alignNextColumn()) alignedForPeriodRef.current = periodId;
           }, 80);
         }
       });
