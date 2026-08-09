@@ -19,7 +19,7 @@ export function todayIsoLocal(): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Ordre grille : futurs (loin→proche) | prochaine | passés (récent→ancien). */
+/** Ordre grille : passés (ancien→récent) | prochaine | futurs (proche→loin). */
 export function orderWeeksForGrid(
   weeks: Week[],
   todayIso: string = todayIsoLocal()
@@ -27,12 +27,13 @@ export function orderWeeksForGrid(
   const sorted = [...weeks].sort((a, b) => a.date.localeCompare(b.date));
   const nextIdx = sorted.findIndex((w) => w.date >= todayIso);
   if (nextIdx < 0) {
-    return { ordered: [...sorted].reverse(), nextId: null };
+    // Tout est passé : du plus ancien au plus récent
+    return { ordered: sorted, nextId: null };
   }
   const next = sorted[nextIdx];
-  const futuresFarToNear = [...sorted.slice(nextIdx + 1)].reverse();
-  const pastRecentToOld = [...sorted.slice(0, nextIdx)].reverse();
-  return { ordered: [...futuresFarToNear, next, ...pastRecentToOld], nextId: next.id };
+  const pastOldestToRecent = sorted.slice(0, nextIdx);
+  const futuresNearToFar = sorted.slice(nextIdx + 1);
+  return { ordered: [...pastOldestToRecent, next, ...futuresNearToFar], nextId: next.id };
 }
 
 function formatLongFr(isoDate: string): string {
