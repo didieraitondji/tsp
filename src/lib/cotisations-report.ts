@@ -1,4 +1,5 @@
 import type { Contribution, Periodicity, Week } from "@/lib/types";
+import { contributionCountedAmount } from "@/lib/contribution-status";
 import { parseIsoDate } from "@/lib/periodicity";
 
 const WEEKDAY_LABELS = [
@@ -139,12 +140,13 @@ export function buildMonthlyTotals(
   for (const id of memberIds) amounts.set(id, new Map());
 
   for (const c of contributions) {
-    if (!(c.amount > 0)) continue;
+    const counted = contributionCountedAmount(c);
+    if (!(counted > 0)) continue;
     const monthKey = weekToMonth.get(c.weekId);
     if (!monthKey) continue;
     const row = amounts.get(c.memberId);
     if (!row) continue;
-    row.set(monthKey, (row.get(monthKey) ?? 0) + c.amount);
+    row.set(monthKey, (row.get(monthKey) ?? 0) + counted);
   }
 
   const monthTotals = new Map<string, number>();

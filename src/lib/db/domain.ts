@@ -307,7 +307,10 @@ export async function reconcileContributionCashEntries(periodId: string): Promis
   ]);
 
   const weekDate = new Map(weeks.map((w) => [w.id, w.date]));
-  const paid = contributions.filter((c) => c.amount > 0);
+  // Uniquement les cotisations payées encore verrouillées (déverrouillé = hors caisse)
+  const paid = contributions.filter(
+    (c) => c.amount > 0 && isContributionRecordLocked(c)
+  );
   const paidIds = new Set(paid.map((c) => c.id));
 
   const disbursedLoans = loans.filter(
@@ -704,15 +707,31 @@ export async function unlockContribution(input: {
   const period = meta.periods.find((p) => p.id === input.periodId);
   if (!period) throw new Error("Tontine introuvable");
 
-  const items = await readCollectionForPeriodId<Contribution>(input.periodId, "contributions");
+  const [items, weeks] = await Promise.all([
+    readCollectionForPeriodId<Contribution>(input.periodId, "contributions"),
+    readCollectionForPeriodId<{ id: string; date: string }>(input.periodId, "weeks"),
+  ]);
   const idx = items.findIndex(
     (c) => c.memberId === input.memberId && c.weekId === input.weekId
   );
   if (idx < 0) throw new Error("Cotisation introuvable");
 
+  const current = items[idx];
   const next = [...items];
-  next[idx] = { ...next[idx], locked: false };
+  next[idx] = { ...current, locked: false };
   await writeCollectionForPeriod(period, "contributions", next);
+
+  // Tant que ce n’est pas re-verrouillé « Payé », l’écriture caisse est retirée
+  // (cohérent avec le total de colonne qui n’affiche que le verrouillé).
+  const weekDate = weeks.find((w) => w.id === input.weekId)?.date;
+  await syncContributionCashEntry({
+    period,
+    contributionId: current.id,
+    amount: 0,
+    date: weekDate || new Date().toISOString().slice(0, 10),
+    description: `Cotisation ${current.id}`,
+    recordedBy: current.recordedBy,
+  });
 }
 
 /** Jour calendaire ISO (YYYY-MM-DD) depuis un timestamp ISO. */

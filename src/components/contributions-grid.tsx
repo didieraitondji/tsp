@@ -12,8 +12,10 @@ import {
 } from "@/components/contributions-table-ui";
 import { orderWeeksForGrid, todayIsoLocal } from "@/lib/cotisations-report";
 import {
+  contributionCountedAmount,
   isContributionRecordLocked,
   resolveContributionStatus,
+  resolveLockedContributionStatus,
 } from "@/lib/contribution-status";
 import { formatDate, formatFcfa } from "@/lib/format";
 import type {
@@ -239,7 +241,7 @@ export function ContributionsGrid({
               let paid = 0;
               let unpaid = 0;
               for (const m of sortedMembers) {
-                const st = resolveContributionStatus(map.get(`${m.id}:${w.id}`));
+                const st = resolveLockedContributionStatus(map.get(`${m.id}:${w.id}`));
                 if (st === "paid") paid += 1;
                 else if (st === "unpaid") unpaid += 1;
               }
@@ -375,9 +377,9 @@ export function ContributionsGrid({
               const lines = sortedMembers.map((m) => ({
                 lastName: m.lastName,
                 firstName: m.firstName,
-                amount: map.get(`${m.id}:${w.id}`)?.amount ?? 0,
+                amount: contributionCountedAmount(map.get(`${m.id}:${w.id}`)),
               }));
-              const total = lines.reduce((s, l) => s + (l.amount > 0 ? l.amount : 0), 0);
+              const total = lines.reduce((s, l) => s + l.amount, 0);
               const isPast = w.date < today;
               return (
                 <td
