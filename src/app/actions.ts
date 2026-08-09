@@ -153,6 +153,10 @@ export async function updateUserAction(formData: FormData): Promise<UserActionSt
 
   let conflict = false;
   let notFound = false;
+  let syncedMemberId: string | null = null;
+  let nextPhoneForMember: string | null = null;
+  let nextEmailForMember: string | null | undefined = undefined;
+
   await usersRepo.update(async (items) => {
     if (phone && items.some((u) => u.id !== data.id && phonesMatch(u.phone, phone))) {
       conflict = true;
@@ -190,12 +194,34 @@ export async function updateUserAction(formData: FormData): Promise<UserActionSt
         : {}),
       updatedAt: new Date().toISOString(),
     };
+    syncedMemberId = next.memberId ?? null;
+    nextPhoneForMember = next.phone;
+    if (data.email !== undefined) nextEmailForMember = next.email ?? null;
     const copy = [...items];
     copy[idx] = next;
     return copy;
   });
   if (conflict) return { error: "Ce numéro est déjà utilisé." };
   if (notFound) return { error: "Compte introuvable." };
+
+  // Compte lié à une fiche → aligner téléphone (et email) dans l’annuaire
+  if (syncedMemberId && nextPhoneForMember) {
+    await globalMembersRepo.update((items) =>
+      items.map((m) => {
+        if (m.id !== syncedMemberId) return m;
+        return {
+          ...m,
+          phone: nextPhoneForMember!,
+          ...(nextEmailForMember !== undefined
+            ? { email: nextEmailForMember || undefined }
+            : {}),
+        };
+      })
+    );
+    revalidatePath("/gestion/membres");
+    revalidatePath("/membre/profil");
+  }
+
   await audit("user.update", data.id);
   revalidatePath("/admin/utilisateurs");
   return { ok: true };
@@ -394,61 +420,70 @@ export async function saveMemberAction(formData: FormData): Promise<MemberAction
     }
   }
 
-  /** Aligne téléphone / nom / email du compte MEMBRE déjà lié à la fiche. */
+  /** Aligne téléphone (et nom/email pour rôle MEMBRE) sur tous les comptes liés à la fiche. */
   async function syncLinkedMemberAccount(member: Member): Promise<MemberActionState> {
     const users = await usersRepo.all();
-    const linked = users.find((u) => u.memberId === member.id && u.role === "MEMBRE");
-    if (!linked) return { ok: true };
+    const linkedUsers = users.filter((u) => u.memberId === member.id);
+    if (linkedUsers.length === 0) return { ok: true };
 
     const nextPhone = member.phone ? normalizePhone(member.phone) : "";
     if (member.phone && !nextPhone) {
-      return { error: "Téléphone invalide pour le compte membre lié." };
+      return { error: "Téléphone invalide pour le compte lié." };
     }
     if (!nextPhone) {
       return {
         error:
-          "Le compte membre lié nécessite un téléphone. Indiquez le nouveau numéro ou gérez le compte dans Comptes & rôles.",
+          "Un compte est lié à cette fiche : le téléphone est obligatoire. Indiquez le numéro ou détachez le compte.",
       };
     }
-    if (users.some((u) => u.id !== linked.id && phonesMatch(u.phone, nextPhone))) {
+
+    const linkedIds = new Set(linkedUsers.map((u) => u.id));
+    if (users.some((u) => !linkedIds.has(u.id) && phonesMatch(u.phone, nextPhone))) {
       return {
         error:
           "Impossible de mettre à jour le compte : un autre utilisateur utilise déjà ce numéro.",
       };
     }
 
-    const nextName = `${member.lastName} ${member.firstName}`.trim();
+    const memberDisplayName = `${member.lastName} ${member.firstName}`.trim();
     const nextEmail = member.email?.trim()
       ? member.email.trim().toLowerCase()
-      : linked.email;
-
-    const phoneChanged = !phonesMatch(linked.phone, nextPhone);
-    const nameChanged = linked.name !== nextName;
-    const emailChanged = (linked.email || null) !== (nextEmail || null);
-    if (!phoneChanged && !nameChanged && !emailChanged) return { ok: true };
+      : undefined;
 
     const now = new Date().toISOString();
+    let changed = false;
     await usersRepo.update((items) =>
-      items.map((u) =>
-        u.id === linked.id
-          ? {
-              ...u,
-              phone: nextPhone,
-              name: nextName,
-              email: nextEmail ?? null,
-              updatedAt: now,
-            }
-          : u
-      )
+      items.map((u) => {
+        if (u.memberId !== member.id) return u;
+        const phoneChanged = !phonesMatch(u.phone, nextPhone);
+        // Nom / email : seulement pour le rôle MEMBRE (le libellé gestionnaire reste libre)
+        const syncProfile = u.role === "MEMBRE";
+        const nextName = syncProfile ? memberDisplayName : u.name;
+        const resolvedEmail = syncProfile
+          ? nextEmail !== undefined
+            ? nextEmail
+            : u.email
+          : u.email;
+        const nameChanged = syncProfile && u.name !== nextName;
+        const emailChanged =
+          syncProfile && (u.email || null) !== (resolvedEmail || null);
+        if (!phoneChanged && !nameChanged && !emailChanged) return u;
+        changed = true;
+        return {
+          ...u,
+          phone: nextPhone,
+          name: nextName,
+          email: resolvedEmail ?? null,
+          updatedAt: now,
+        };
+      })
     );
-    await audit(
-      "user.update",
-      phoneChanged
-        ? `${linked.phone} → ${nextPhone} (sync fiche ${member.id})`
-        : `${nextPhone} (sync fiche ${member.id})`
-    );
-    revalidatePath("/admin/utilisateurs");
-    revalidatePath("/membre/profil");
+
+    if (changed) {
+      await audit("user.update", `sync fiche ${member.id} → ${nextPhone}`);
+      revalidatePath("/admin/utilisateurs");
+      revalidatePath("/membre/profil");
+    }
     return { ok: true };
   }
 
@@ -484,22 +519,23 @@ export async function saveMemberAction(formData: FormData): Promise<MemberAction
       }
     }
 
-    // Pré-contrôle sync compte (évite d’écrire la fiche si le numéro est déjà pris)
+    // Pré-contrôle sync comptes liés
     {
       const users = await usersRepo.all();
-      const linked = users.find((u) => u.memberId === data.id && u.role === "MEMBRE");
-      if (linked) {
+      const linkedUsers = users.filter((u) => u.memberId === data.id);
+      if (linkedUsers.length > 0) {
         const nextPhone = updated.phone ? normalizePhone(updated.phone) : "";
         if (updated.phone && !nextPhone) {
-          return { error: "Téléphone invalide pour le compte membre lié." };
+          return { error: "Téléphone invalide pour le compte lié." };
         }
         if (!nextPhone) {
           return {
             error:
-              "Le compte membre lié nécessite un téléphone. Indiquez le nouveau numéro ou gérez le compte dans Comptes & rôles.",
+              "Un compte est lié à cette fiche : le téléphone est obligatoire.",
           };
         }
-        if (users.some((u) => u.id !== linked.id && phonesMatch(u.phone, nextPhone))) {
+        const linkedIds = new Set(linkedUsers.map((u) => u.id));
+        if (users.some((u) => !linkedIds.has(u.id) && phonesMatch(u.phone, nextPhone))) {
           return {
             error:
               "Impossible de mettre à jour : un autre utilisateur utilise déjà ce numéro.",
