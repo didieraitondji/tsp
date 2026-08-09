@@ -187,13 +187,23 @@ export async function rebuildCashBalances(
 export const CASH_ORIGIN_CONTRIBUTION = "Cotisation";
 export const CASH_ORIGIN_LOAN = "Prêt octroyé";
 export const CASH_ORIGIN_PENALTY = "Pénalité";
+export const CASH_ORIGIN_REPAYMENT = "Remboursement";
+
+/** Origines pour lesquelles (origin, reference) doit être unique (1 écriture max). */
+const CASH_UNIQUE_ORIGINS = new Set([
+  CASH_ORIGIN_CONTRIBUTION,
+  CASH_ORIGIN_LOAN,
+  CASH_ORIGIN_PENALTY,
+]);
 
 function cashAutoKey(origin: string | undefined, reference: string | undefined): string | null {
   if (!origin || !reference) return null;
+  // Les remboursements sont multi-tranches : plusieurs écritures pour le même prêt.
+  if (!CASH_UNIQUE_ORIGINS.has(origin)) return null;
   return `${origin}::${reference}`;
 }
 
-/** Une seule écriture par (origin, reference) — garde la plus ancienne. */
+/** Une seule écriture par (origin, reference) pour cotisation / prêt / pénalité — garde la plus ancienne. */
 export function dedupeCashEntriesByOriginReference(entries: CashEntry[]): CashEntry[] {
   const kept = new Map<string, CashEntry>();
   const passthrough: CashEntry[] = [];

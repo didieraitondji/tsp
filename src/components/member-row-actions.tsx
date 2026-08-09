@@ -144,7 +144,8 @@ export function MemberRowActions({
             </label>
           ) : (
             <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-900">
-              Un compte membre est déjà lié à cette fiche.
+              Un compte membre est déjà lié : le téléphone, le nom et l’email de
+              connexion seront mis à jour avec cette fiche.
             </p>
           )}
 

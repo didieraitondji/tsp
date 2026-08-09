@@ -76,7 +76,8 @@ export default async function RemboursementsPage({
             Remboursements
           </h1>
           <p className="mt-2 max-w-xl text-[var(--muted)]">
-            Enregistrement des remboursements de prêts par tontine.
+            Remboursements libres en une ou plusieurs tranches. Le prêt reste ouvert
+            jusqu’à extinction du solde.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

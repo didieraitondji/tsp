@@ -33,20 +33,30 @@ export function CreateRepaymentModal({
       ? defaultPeriodId
       : tontines[0]?.id) || "";
   const [periodId, setPeriodId] = useState(initialPeriodId);
+  const [loanId, setLoanId] = useState("");
+  const [amount, setAmount] = useState("");
 
   const loans = useMemo(
     () => tontines.find((t) => t.id === periodId)?.loans ?? [],
     [tontines, periodId]
   );
+  const selectedLoan = loans.find((l) => l.id === loanId);
+  const remaining = selectedLoan?.remaining ?? 0;
   const selectedName = tontines.find((t) => t.id === periodId)?.name;
   const hasAnyLoan = tontines.some((t) => t.loans.length > 0);
+
+  const resetForm = () => {
+    setPeriodId(initialPeriodId);
+    setLoanId("");
+    setAmount("");
+  };
 
   return (
     <>
       <button
         type="button"
         onClick={() => {
-          setPeriodId(initialPeriodId);
+          resetForm();
           setOpen(true);
         }}
         disabled={!hasAnyLoan}
@@ -60,7 +70,7 @@ export function CreateRepaymentModal({
         open={open}
         onClose={() => setOpen(false)}
         title="Nouveau remboursement"
-        description="Choisissez la tontine, puis un prêt en cours à rembourser."
+        description="Saisissez une tranche libre : le prêt reste ouvert tant que le solde n’est pas à zéro."
       >
         {!hasAnyLoan ? (
           <p className="text-sm text-[var(--muted)]">
@@ -80,7 +90,11 @@ export function CreateRepaymentModal({
                 name="periodId"
                 required
                 value={periodId}
-                onChange={(e) => setPeriodId(e.target.value)}
+                onChange={(e) => {
+                  setPeriodId(e.target.value);
+                  setLoanId("");
+                  setAmount("");
+                }}
               >
                 {tontines.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -98,7 +112,18 @@ export function CreateRepaymentModal({
                   {selectedName ? ` sur « ${selectedName} »` : ""}.
                 </p>
               ) : (
-                <Select key={periodId} name="loanId" required defaultValue="">
+                <Select
+                  key={periodId}
+                  name="loanId"
+                  required
+                  value={loanId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setLoanId(id);
+                    const loan = loans.find((l) => l.id === id);
+                    setAmount(loan ? String(loan.remaining) : "");
+                  }}
+                >
                   <option value="" disabled>
                     Choisir…
                   </option>
@@ -110,13 +135,65 @@ export function CreateRepaymentModal({
                 </Select>
               )}
             </div>
+
+            {selectedLoan && (
+              <div className="rounded-xl border border-[#FFCD79]/50 bg-[#FFF8EB] px-3.5 py-3 text-sm text-[var(--navy)]">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  Solde restant
+                </p>
+                <p className="mt-0.5 font-[family-name:var(--font-display)] text-lg font-bold tabular-nums">
+                  {formatFcfa(remaining)}
+                </p>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Montant libre : une partie ou la totalité. Vous pourrez enregistrer
+                  d’autres tranches plus tard.
+                </p>
+              </div>
+            )}
+
             <div>
               <Label>Date</Label>
-              <Input name="date" type="date" required />
+              <Input
+                name="date"
+                type="date"
+                required
+                defaultValue={new Date().toISOString().slice(0, 10)}
+              />
             </div>
             <div>
-              <Label>Montant (FCFA)</Label>
-              <Input name="amount" type="number" min={1} required />
+              <Label>Montant de la tranche (FCFA)</Label>
+              <Input
+                name="amount"
+                type="number"
+                min={1}
+                max={remaining > 0 ? remaining : undefined}
+                required
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                disabled={!selectedLoan}
+              />
+              {selectedLoan && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAmount(String(remaining))}
+                    className="cursor-pointer rounded-full border border-[var(--line)] bg-white px-3 py-1 text-[11px] font-semibold text-[var(--navy)] transition hover:border-[#FFCD79]"
+                  >
+                    Tout rembourser ({formatFcfa(remaining)})
+                  </button>
+                  {remaining > 1000 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAmount(String(Math.max(1, Math.round(remaining / 2))))
+                      }
+                      className="cursor-pointer rounded-full border border-[var(--line)] bg-white px-3 py-1 text-[11px] font-semibold text-[var(--navy)] transition hover:border-[#FFCD79]"
+                    >
+                      Moitié
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-2 pt-1">
               <button
@@ -129,9 +206,9 @@ export function CreateRepaymentModal({
               <SubmitButton
                 className="!rounded-full"
                 pendingLabel="Enregistrement…"
-                disabled={loans.length === 0}
+                disabled={loans.length === 0 || !loanId}
               >
-                Enregistrer
+                Enregistrer la tranche
               </SubmitButton>
             </div>
           </form>

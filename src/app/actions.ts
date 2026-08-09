@@ -394,6 +394,64 @@ export async function saveMemberAction(formData: FormData): Promise<MemberAction
     }
   }
 
+  /** Aligne téléphone / nom / email du compte MEMBRE déjà lié à la fiche. */
+  async function syncLinkedMemberAccount(member: Member): Promise<MemberActionState> {
+    const users = await usersRepo.all();
+    const linked = users.find((u) => u.memberId === member.id && u.role === "MEMBRE");
+    if (!linked) return { ok: true };
+
+    const nextPhone = member.phone ? normalizePhone(member.phone) : "";
+    if (member.phone && !nextPhone) {
+      return { error: "Téléphone invalide pour le compte membre lié." };
+    }
+    if (!nextPhone) {
+      return {
+        error:
+          "Le compte membre lié nécessite un téléphone. Indiquez le nouveau numéro ou gérez le compte dans Comptes & rôles.",
+      };
+    }
+    if (users.some((u) => u.id !== linked.id && phonesMatch(u.phone, nextPhone))) {
+      return {
+        error:
+          "Impossible de mettre à jour le compte : un autre utilisateur utilise déjà ce numéro.",
+      };
+    }
+
+    const nextName = `${member.lastName} ${member.firstName}`.trim();
+    const nextEmail = member.email?.trim()
+      ? member.email.trim().toLowerCase()
+      : linked.email;
+
+    const phoneChanged = !phonesMatch(linked.phone, nextPhone);
+    const nameChanged = linked.name !== nextName;
+    const emailChanged = (linked.email || null) !== (nextEmail || null);
+    if (!phoneChanged && !nameChanged && !emailChanged) return { ok: true };
+
+    const now = new Date().toISOString();
+    await usersRepo.update((items) =>
+      items.map((u) =>
+        u.id === linked.id
+          ? {
+              ...u,
+              phone: nextPhone,
+              name: nextName,
+              email: nextEmail ?? null,
+              updatedAt: now,
+            }
+          : u
+      )
+    );
+    await audit(
+      "user.update",
+      phoneChanged
+        ? `${linked.phone} → ${nextPhone} (sync fiche ${member.id})`
+        : `${nextPhone} (sync fiche ${member.id})`
+    );
+    revalidatePath("/admin/utilisateurs");
+    revalidatePath("/membre/profil");
+    return { ok: true };
+  }
+
   if (data.id) {
     const existing = (await globalMembersRepo.all()).find((m) => m.id === data.id);
     if (!existing) return { error: "Membre introuvable." };
@@ -426,10 +484,42 @@ export async function saveMemberAction(formData: FormData): Promise<MemberAction
       }
     }
 
+    // Pré-contrôle sync compte (évite d’écrire la fiche si le numéro est déjà pris)
+    {
+      const users = await usersRepo.all();
+      const linked = users.find((u) => u.memberId === data.id && u.role === "MEMBRE");
+      if (linked) {
+        const nextPhone = updated.phone ? normalizePhone(updated.phone) : "";
+        if (updated.phone && !nextPhone) {
+          return { error: "Téléphone invalide pour le compte membre lié." };
+        }
+        if (!nextPhone) {
+          return {
+            error:
+              "Le compte membre lié nécessite un téléphone. Indiquez le nouveau numéro ou gérez le compte dans Comptes & rôles.",
+          };
+        }
+        if (users.some((u) => u.id !== linked.id && phonesMatch(u.phone, nextPhone))) {
+          return {
+            error:
+              "Impossible de mettre à jour : un autre utilisateur utilise déjà ce numéro.",
+          };
+        }
+      }
+    }
+
     await globalMembersRepo.update((items) =>
       items.map((m) => (m.id === data.id ? updated : m))
     );
     await audit("member.update", `${data.lastName} ${data.firstName}`);
+
+    const syncResult = await syncLinkedMemberAccount(updated);
+    if (syncResult?.error) {
+      revalidatePath("/gestion/membres");
+      return {
+        error: `Membre mis à jour, mais ${syncResult.error.charAt(0).toLowerCase()}${syncResult.error.slice(1)}`,
+      };
+    }
 
     if (createAccount) {
       const accountResult = await ensureMemberAccount(updated);
@@ -1056,10 +1146,11 @@ export async function createRepaymentAction(formData: FormData) {
   const rem = Math.max(0, loan.totalDue - newRepaid);
 
   const repayments = await readCollectionForPeriodId<Repayment>(periodId, "repayments");
+  const repaymentId = newId("REM");
   await writeCollectionForPeriod(period, "repayments", [
     ...repayments,
     {
-      id: newId("REM"),
+      id: repaymentId,
       loanId: loan.id,
       date: parsed.data.date,
       amount,
@@ -1090,13 +1181,13 @@ export async function createRepaymentAction(formData: FormData) {
     type: "Entrée",
     description: `Remboursement ${loan.id}`,
     amount,
-    reference: loan.id,
+    reference: repaymentId,
     origin: "Remboursement",
     recordedBy: session.user.name,
     periodId,
   });
 
-  await audit("repayment.create", `${loan.id}: ${amount}`);
+  await audit("repayment.create", `${loan.id}: ${amount} (reste ${rem})`);
   revalidatePath("/gestion/remboursements");
   revalidatePath("/gestion/prets");
   revalidatePath("/gestion/caisse");
