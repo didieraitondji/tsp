@@ -2,22 +2,19 @@
 
 import { useState, useTransition } from "react";
 import { Check, Copy, Loader2 } from "lucide-react";
-import { applyLateReportPenaltiesAction } from "@/app/actions";
 import { buildWeekReportText } from "@/lib/cotisations-report";
 import type { Periodicity } from "@/lib/types";
 
 type ReportLine = { lastName: string; firstName: string; amount: number };
 
 export function CopyWeekReportButton({
-  periodId,
-  weekId,
   weekDate,
   periodicity,
   lines,
   afterLate,
 }: {
-  periodId: string;
-  weekId: string;
+  periodId?: string;
+  weekId?: string;
   weekDate: string;
   periodicity?: Periodicity | null;
   lines: ReportLine[];
@@ -44,16 +41,6 @@ export function CopyWeekReportButton({
           setError(null);
           start(async () => {
             try {
-              if (afterLate) {
-                const fd = new FormData();
-                fd.set("periodId", periodId);
-                fd.set("weekId", weekId);
-                const result = await applyLateReportPenaltiesAction(null, fd);
-                if (result?.error) {
-                  setError(result.error);
-                  return;
-                }
-              }
               const text = buildWeekReportText({
                 weekDate,
                 periodicity,
@@ -69,7 +56,7 @@ export function CopyWeekReportButton({
         className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--line)] bg-white px-2 py-1.5 text-[10px] font-semibold text-[var(--navy)] transition hover:bg-[var(--cream)] disabled:cursor-wait disabled:opacity-60"
         title={
           afterLate
-            ? "Copier le point après retards (crée les pénalités)"
+            ? "Copier le point après retards (sans créer de pénalité)"
             : "Copier le rapport de la séance"
         }
       >

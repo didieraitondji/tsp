@@ -752,6 +752,20 @@ export async function markContributionAction(
     return { ok: false, error: "Cible de cotisation manquante." };
   }
 
+  if (parsed.data.status === "unpaid") {
+    const weeks = await readCollectionForPeriodId<{ id: string; date: string }>(
+      periodId,
+      "weeks"
+    );
+    const week = weeks.find((w) => w.id === parsed.data.weekId);
+    if (!week) return { ok: false, error: "Séance introuvable." };
+    const today = new Date();
+    const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    if (week.date > todayIso) {
+      return { ok: false, error: "Impossible de marquer impayé une séance future." };
+    }
+  }
+
   try {
     const settings = await readObjectForPeriodId(periodId, "settings", DEFAULT_SETTINGS);
     const { contribution, penaltyCreated } = await markContributionStatus({

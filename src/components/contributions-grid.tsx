@@ -337,6 +337,7 @@ export function ContributionsGrid({
                         periodId={periodId}
                         memberId={m.id}
                         weekId={w.id}
+                        weekDate={w.date}
                         weeklyTarget={m.weeklyTarget}
                         penaltyAmount={penaltyAmount}
                         amount={amount}
@@ -383,8 +384,6 @@ export function ContributionsGrid({
                   </p>
                   <div className="flex flex-col items-center gap-1.5">
                     <CopyWeekReportButton
-                      periodId={periodId}
-                      weekId={w.id}
                       weekDate={w.date}
                       periodicity={periodicity}
                       lines={lines}
@@ -392,8 +391,6 @@ export function ContributionsGrid({
                     />
                     {isPast && !readOnly && (
                       <CopyWeekReportButton
-                        periodId={periodId}
-                        weekId={w.id}
                         weekDate={w.date}
                         periodicity={periodicity}
                         lines={lines}

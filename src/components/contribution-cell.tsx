@@ -8,6 +8,7 @@ import {
   type UnlockContributionState,
 } from "@/app/actions";
 import { PasswordInput } from "@/components/password-input";
+import { todayIsoLocal } from "@/lib/cotisations-report";
 import { formatFcfa } from "@/lib/format";
 import type { ContributionStatus } from "@/lib/types";
 
@@ -15,6 +16,7 @@ export function ContributionCell({
   periodId,
   memberId,
   weekId,
+  weekDate,
   weeklyTarget,
   penaltyAmount,
   amount,
@@ -25,6 +27,8 @@ export function ContributionCell({
   periodId: string;
   memberId: string;
   weekId: string;
+  /** Date ISO de la séance — Impayé masqué si future */
+  weekDate: string;
   weeklyTarget: number;
   penaltyAmount: number;
   amount: number;
@@ -109,6 +113,7 @@ export function ContributionCell({
 
   const isLocked =
     localLocked && (localStatus === "paid" || localStatus === "unpaid");
+  const canMarkUnpaid = weekDate <= todayIsoLocal();
 
   const mark = (nextStatus: ContributionStatus) => {
     if (isLocked || pending) return;
@@ -192,7 +197,9 @@ export function ContributionCell({
               type="button"
               disabled={pending}
               onClick={() => mark("paid")}
-              className={`flex-1 cursor-pointer rounded-lg border px-1 py-1 text-[10px] font-semibold transition disabled:cursor-wait ${
+              className={`cursor-pointer rounded-lg border px-1 py-1 text-[10px] font-semibold transition disabled:cursor-wait ${
+                canMarkUnpaid ? "flex-1" : "w-full"
+              } ${
                 localStatus === "paid"
                   ? "border-emerald-300 bg-emerald-50 text-emerald-900"
                   : "border-[var(--line)] bg-white text-[var(--navy)] hover:border-emerald-300 hover:bg-emerald-50/60"
@@ -201,19 +208,21 @@ export function ContributionCell({
             >
               Payé
             </button>
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => setConfirmUnpaid(true)}
-              className={`flex-1 cursor-pointer rounded-lg border px-1 py-1 text-[10px] font-semibold transition disabled:cursor-wait ${
-                localStatus === "unpaid"
-                  ? "border-red-300 bg-red-50 text-red-800"
-                  : "border-[var(--line)] bg-white text-[var(--navy)] hover:border-red-300 hover:bg-red-50/60"
-              }`}
-              title="Impayé · pénalité"
-            >
-              Impayé
-            </button>
+            {canMarkUnpaid && (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => setConfirmUnpaid(true)}
+                className={`flex-1 cursor-pointer rounded-lg border px-1 py-1 text-[10px] font-semibold transition disabled:cursor-wait ${
+                  localStatus === "unpaid"
+                    ? "border-red-300 bg-red-50 text-red-800"
+                    : "border-[var(--line)] bg-white text-[var(--navy)] hover:border-red-300 hover:bg-red-50/60"
+                }`}
+                title="Impayé · pénalité"
+              >
+                Impayé
+              </button>
+            )}
           </div>
           {saveError && (
             <p className="text-[9px] leading-tight text-red-600" title={saveError}>
