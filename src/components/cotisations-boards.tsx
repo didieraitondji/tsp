@@ -37,17 +37,16 @@ export function CotisationsBoards({
   const [contributions, setContributions] = useState(initialContributions);
   const [members, setMembers] = useState(initialMembers);
 
+  // Ne pas réécraser les totaux / verrous locaux à chaque refresh RSC.
   useEffect(() => {
     setContributions(initialContributions);
-  }, [initialContributions, periodId]);
-
-  useEffect(() => {
     setMembers(initialMembers);
-  }, [initialMembers, periodId]);
+    setTab(initialTab);
+  }, [periodId]); // eslint-disable-line react-hooks/exhaustive-deps -- reset only when tontine changes
 
   useEffect(() => {
     setTab(initialTab);
-  }, [initialTab, periodId]);
+  }, [initialTab]);
 
   const actifs = members.filter((m) => m.status === "Actif").length;
 

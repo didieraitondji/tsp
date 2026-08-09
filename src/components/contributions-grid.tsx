@@ -79,9 +79,11 @@ export function ContributionsGrid({
   const { ordered, nextId } = useMemo(() => orderWeeksForGrid(weeks, today), [weeks, today]);
 
   const [localContributions, setLocalContributions] = useState(contributions);
+  // Sync initiale / changement de tontine uniquement — pas à chaque update parent
+  // (sinon les totaux et le déverrouillage sont écrasés par un refresh RSC).
   useEffect(() => {
     setLocalContributions(contributions);
-  }, [contributions, periodId]);
+  }, [periodId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const map = useMemo(() => {
     const m = new Map<string, Contribution>();

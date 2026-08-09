@@ -1,11 +1,10 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Check, Lock, Unlock, X } from "lucide-react";
 import {
   markContributionAction,
   unlockContributionAction,
-  type UnlockContributionState,
 } from "@/app/actions";
 import { PasswordInput } from "@/components/password-input";
 import { todayIsoLocal } from "@/lib/cotisations-report";
@@ -49,10 +48,7 @@ export function ContributionCell({
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [confirmUnpaid, setConfirmUnpaid] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [state, formAction, unlocking] = useActionState<UnlockContributionState, FormData>(
-    unlockContributionAction,
-    null
-  );
+  const [unlockError, setUnlockError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const confirmRef = useRef<HTMLDialogElement>(null);
   /** Évite que d’anciennes props n’écrasent un marquage venant d’être sauvé. */
@@ -98,21 +94,6 @@ export function ContributionCell({
     }
   }, [confirmUnpaid]);
 
-  useEffect(() => {
-    if (!state?.ok) return;
-    setUnlockOpen(false);
-    setLocalLocked(false);
-    expectedRef.current = {
-      amount: localAmount,
-      status: localStatus === "none" ? "paid" : localStatus,
-      locked: false,
-    };
-    if (localStatus === "paid" || localStatus === "unpaid") {
-      onSaved?.({ amount: localAmount, locked: false, status: localStatus });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to unlock success
-  }, [state?.ok]);
-
   const isLocked =
     localLocked && (localStatus === "paid" || localStatus === "unpaid");
   const canMarkUnpaid = weekDate <= todayIsoLocal();
@@ -120,6 +101,18 @@ export function ContributionCell({
   const paidTitle = canMarkUnpaid
     ? `Payé · ${formatFcfa(weeklyTarget)}`
     : `Avance · ${formatFcfa(weeklyTarget)}`;
+
+  const applyLocalSave = (next: {
+    amount: number;
+    locked: boolean;
+    status: ContributionStatus;
+  }) => {
+    expectedRef.current = next;
+    setLocalAmount(next.amount);
+    setLocalLocked(next.locked);
+    setLocalStatus(next.status);
+    onSaved?.(next);
+  };
 
   const mark = (nextStatus: ContributionStatus) => {
     if (isLocked || pending) return;
@@ -138,23 +131,43 @@ export function ContributionCell({
         const result = await markContributionAction(fd);
         if (!result.ok) {
           setSaveError(result.error ?? "Échec");
-          pendingSaveRef.current = false;
           return;
         }
-        // Fermer la modale avant de basculer l’UI verrouillée
         setConfirmUnpaid(false);
-        expectedRef.current = {
+        applyLocalSave({
           amount: result.amount,
           status: result.status,
           locked: result.locked,
-        };
-        setLocalAmount(result.amount);
-        setLocalLocked(result.locked);
-        setLocalStatus(result.status);
-        onSaved?.({
-          amount: result.amount,
-          locked: result.locked,
-          status: result.status,
+        });
+      } finally {
+        pendingSaveRef.current = false;
+      }
+    });
+  };
+
+  const unlockWithPassword = (password: string) => {
+    if (pending) return;
+    pendingSaveRef.current = true;
+    setUnlockError(null);
+    const fd = new FormData();
+    fd.set("periodId", periodId);
+    fd.set("memberId", memberId);
+    fd.set("weekId", weekId);
+    fd.set("password", password);
+    start(async () => {
+      try {
+        const result = await unlockContributionAction(null, fd);
+        if (!result?.ok) {
+          setUnlockError(result?.error ?? "Déverrouillage impossible.");
+          return;
+        }
+        const nextStatus: ContributionStatus =
+          localStatus === "unpaid" ? "unpaid" : "paid";
+        setUnlockOpen(false);
+        applyLocalSave({
+          amount: localAmount,
+          status: nextStatus,
+          locked: false,
         });
       } finally {
         pendingSaveRef.current = false;
@@ -163,17 +176,34 @@ export function ContributionCell({
   };
 
   const requestUnlock = () => {
-    if (unlocking) return;
+    if (pending) return;
+    setUnlockError(null);
     if (requirePasswordToUnlock) {
       setUnlockOpen(true);
       return;
     }
+    pendingSaveRef.current = true;
     const fd = new FormData();
     fd.set("periodId", periodId);
     fd.set("memberId", memberId);
     fd.set("weekId", weekId);
-    start(() => {
-      formAction(fd);
+    start(async () => {
+      try {
+        const result = await unlockContributionAction(null, fd);
+        if (!result?.ok) {
+          setUnlockError(result?.error ?? "Déverrouillage impossible.");
+          return;
+        }
+        const nextStatus: ContributionStatus =
+          localStatus === "unpaid" ? "unpaid" : "paid";
+        applyLocalSave({
+          amount: localAmount,
+          status: nextStatus,
+          locked: false,
+        });
+      } finally {
+        pendingSaveRef.current = false;
+      }
     });
   };
 
@@ -212,7 +242,7 @@ export function ContributionCell({
           <button
             type="button"
             onClick={requestUnlock}
-            disabled={unlocking}
+            disabled={pending}
             className="inline-flex cursor-pointer items-center justify-center gap-0.5 text-[10px] font-medium text-[var(--muted)] transition hover:text-[var(--navy)] disabled:opacity-60"
             title={
               requirePasswordToUnlock
@@ -221,11 +251,11 @@ export function ContributionCell({
             }
           >
             <Unlock className="h-3 w-3" strokeWidth={1.75} />
-            {unlocking && !requirePasswordToUnlock ? "…" : "Déverr."}
+            {pending && !requirePasswordToUnlock ? "…" : "Déverr."}
           </button>
-          {state?.error && !requirePasswordToUnlock && (
-            <p className="text-[9px] leading-tight text-red-600" title={state.error}>
-              {state.error.length > 24 ? "Erreur" : state.error}
+          {unlockError && !requirePasswordToUnlock && (
+            <p className="text-[9px] leading-tight text-red-600" title={unlockError}>
+              {unlockError.length > 24 ? "Erreur" : unlockError}
             </p>
           )}
         </>
@@ -271,23 +301,38 @@ export function ContributionCell({
         </>
       )}
 
-      {/* Toujours montées pour pouvoir fermer proprement (évite les modales fantômes) */}
       <dialog
         ref={dialogRef}
         className="fixed left-1/2 top-1/2 z-50 m-0 w-[min(calc(100%-2rem),22rem)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[var(--line)] bg-white p-0 shadow-[0_24px_60px_-20px_rgba(21,34,56,0.45)] backdrop:bg-black/45"
-        onClose={() => setUnlockOpen(false)}
+        onClose={() => {
+          setUnlockOpen(false);
+          setUnlockError(null);
+        }}
         onClick={(e) => {
-          if (e.target === dialogRef.current) setUnlockOpen(false);
+          if (e.target === dialogRef.current) {
+            setUnlockOpen(false);
+            setUnlockError(null);
+          }
         }}
       >
-        <form action={formAction} className="p-5">
+        <form
+          className="p-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const fd = new FormData(e.currentTarget);
+            unlockWithPassword(String(fd.get("password") || ""));
+          }}
+        >
           <div className="flex items-start justify-between gap-2">
             <h3 className="font-[family-name:var(--font-display)] text-base font-bold text-[var(--navy)]">
               Déverrouiller
             </h3>
             <button
               type="button"
-              onClick={() => setUnlockOpen(false)}
+              onClick={() => {
+                setUnlockOpen(false);
+                setUnlockError(null);
+              }}
               className="cursor-pointer rounded-lg p-1 text-[var(--muted)] hover:bg-[var(--cream)]"
               aria-label="Fermer"
             >
@@ -297,31 +342,31 @@ export function ContributionCell({
           <p className="mt-2 text-sm text-[var(--muted)]">
             Confirmez avec votre mot de passe pour modifier ce marquage.
           </p>
-          <input type="hidden" name="periodId" value={periodId} />
-          <input type="hidden" name="memberId" value={memberId} />
-          <input type="hidden" name="weekId" value={weekId} />
           <div className="mt-3">
             <PasswordInput name="password" required autoComplete="current-password" />
           </div>
-          {state?.error && (
+          {unlockError && (
             <p className="mt-2 rounded-lg bg-red-50 px-2 py-1.5 text-xs text-red-700">
-              {state.error}
+              {unlockError}
             </p>
           )}
           <div className="mt-4 flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => setUnlockOpen(false)}
+              onClick={() => {
+                setUnlockOpen(false);
+                setUnlockError(null);
+              }}
               className="cursor-pointer rounded-full border border-[var(--line)] px-3 py-1.5 text-sm"
             >
               Annuler
             </button>
             <button
               type="submit"
-              disabled={unlocking}
+              disabled={pending}
               className="cursor-pointer rounded-full bg-[#1D2D50] px-3 py-1.5 text-sm font-semibold text-[#FFCD79] disabled:opacity-60"
             >
-              {unlocking ? "…" : "Déverrouiller"}
+              {pending ? "…" : "Déverrouiller"}
             </button>
           </div>
         </form>
