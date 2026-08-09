@@ -6,6 +6,15 @@ export function memberInitials(lastName: string, firstName: string): string {
   return `${a}${b}`.toUpperCase() || "?";
 }
 
+/** « A. Didier » — initiale du nom + prénoms. */
+export function formatMemberShortName(lastName: string, firstName: string): string {
+  const initial = (lastName || "").trim()[0]?.toUpperCase() || "";
+  const prenoms = (firstName || "").trim();
+  if (initial && prenoms) return `${initial}. ${prenoms}`;
+  if (prenoms) return prenoms;
+  return (lastName || "").trim() || "—";
+}
+
 export function MemberIdentity({
   lastName,
   firstName,
@@ -22,7 +31,7 @@ export function MemberIdentity({
         {memberInitials(lastName, firstName)}
       </span>
       <span className="truncate font-medium text-[var(--navy)]">
-        {lastName} {firstName}
+        {formatMemberShortName(lastName, firstName)}
       </span>
     </div>
   );
