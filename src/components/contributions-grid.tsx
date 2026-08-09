@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContributionCell } from "@/components/contribution-cell";
 import { CopyWeekReportButton } from "@/components/copy-week-report-button";
+import {
+  MemberIdentity,
+  STICKY_EDGE,
+  WeekColumnStats,
+} from "@/components/contributions-table-ui";
 import { orderWeeksForGrid, todayIsoLocal } from "@/lib/cotisations-report";
 import {
   isContributionRecordLocked,
@@ -17,7 +22,7 @@ import type {
   Week,
 } from "@/lib/types";
 
-const MEMBER_COL_W = 11; // rem
+const MEMBER_COL_W = 12; // rem — avatar + nom
 const TARGET_COL_W = 6.5;
 const STICKY_LEFT_TARGET = MEMBER_COL_W;
 const WEEKDAY_SHORT = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."] as const;
@@ -201,13 +206,13 @@ export function ContributionsGrid({
         <thead>
           <tr>
             <th
-              className={`sticky left-0 top-0 z-40 border-b border-r border-[var(--line)] ${BG.panel} px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)]`}
+              className={`sticky left-0 top-0 z-40 border-b border-r border-[var(--line)] ${BG.panel} px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)] ${STICKY_EDGE}`}
               style={{ minWidth: `${MEMBER_COL_W}rem`, maxWidth: `${MEMBER_COL_W}rem` }}
             >
               Membre
             </th>
             <th
-              className={`sticky top-0 z-40 border-b border-r border-[var(--line)] ${BG.panel} px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)]`}
+              className={`sticky top-0 z-40 border-b border-r border-[var(--line)] ${BG.panel} px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)] ${STICKY_EDGE}`}
               style={{
                 left: `${STICKY_LEFT_TARGET}rem`,
                 minWidth: `${TARGET_COL_W}rem`,
@@ -218,6 +223,13 @@ export function ContributionsGrid({
             </th>
             {ordered.map((w, weekIndex) => {
               const isNext = w.id === nextId;
+              let paid = 0;
+              let unpaid = 0;
+              for (const m of sortedMembers) {
+                const st = resolveContributionStatus(map.get(`${m.id}:${w.id}`));
+                if (st === "paid") paid += 1;
+                else if (st === "unpaid") unpaid += 1;
+              }
               return (
                 <th
                   key={w.id}
@@ -226,16 +238,22 @@ export function ContributionsGrid({
                   onMouseLeave={() => setHoveredWeekId(null)}
                   title={formatDate(w.date)}
                   className={`sticky top-0 z-30 border-b border-[var(--line)] px-2 py-2 text-center text-xs font-semibold whitespace-nowrap shadow-[0_1px_0_var(--line)] ${headerColTone(w, weekIndex)}`}
-                  style={{ minWidth: "7rem" }}
+                  style={{ minWidth: "7.25rem" }}
                 >
                   <span className="block text-[10px] font-medium uppercase tracking-wide opacity-80">
                     {weekdayShort(w.date)}
                   </span>
                   <span className="tabular-nums">{formatDate(w.date)}</span>
-                  {isNext && (
-                    <span className="mt-0.5 block text-[9px] font-medium uppercase tracking-wide opacity-80">
+                  {isNext ? (
+                    <span className="mt-1 inline-flex rounded-full bg-[#FFCD79]/25 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#FFCD79]">
                       Prochaine
                     </span>
+                  ) : (
+                    <WeekColumnStats
+                      paid={paid}
+                      unpaid={unpaid}
+                      total={sortedMembers.length}
+                    />
                   )}
                 </th>
               );
@@ -246,22 +264,23 @@ export function ContributionsGrid({
           {sortedMembers.map((m) => (
             <tr key={m.id} className="group">
               <td
-                className={`sticky left-0 z-20 border-b border-r border-[var(--line)] ${BG.panel} px-3 py-2 font-medium text-[var(--navy)] group-hover:bg-[#FFF8EB]`}
+                className={`sticky left-0 z-20 border-b border-r border-[var(--line)] ${BG.panel} px-3 py-2 group-hover:bg-[#FFF8EB] ${STICKY_EDGE}`}
                 style={{ minWidth: `${MEMBER_COL_W}rem`, maxWidth: `${MEMBER_COL_W}rem` }}
               >
-                <span className="block truncate">
-                  {m.lastName} {m.firstName}
-                </span>
+                <MemberIdentity lastName={m.lastName} firstName={m.firstName} />
               </td>
               <td
-                className={`sticky z-20 border-b border-r border-[var(--line)] ${BG.panel} px-2 py-2 text-xs tabular-nums text-[var(--muted)] group-hover:bg-[#FFF8EB]`}
+                className={`sticky z-20 border-b border-r border-[var(--line)] ${BG.panel} px-2 py-2 text-xs tabular-nums text-[var(--muted)] group-hover:bg-[#FFF8EB] ${STICKY_EDGE}`}
                 style={{
                   left: `${STICKY_LEFT_TARGET}rem`,
                   minWidth: `${TARGET_COL_W}rem`,
                   maxWidth: `${TARGET_COL_W}rem`,
                 }}
               >
-                {formatFcfa(m.weeklyTarget)}
+                <span className="font-medium text-[var(--navy)]">
+                  {formatFcfa(m.weeklyTarget).replace(" FCFA", "")}
+                </span>
+                <span className="mt-0.5 block text-[9px] text-[var(--muted)]">FCFA</span>
               </td>
               {ordered.map((w, weekIndex) => {
                 const c = map.get(`${m.id}:${w.id}`);
@@ -314,13 +333,13 @@ export function ContributionsGrid({
         <tfoot>
           <tr>
             <td
-              className={`sticky bottom-0 left-0 z-40 border-t border-r border-[var(--line)] ${BG.panel} px-3 py-3 text-xs font-semibold text-[var(--navy)] shadow-[0_-1px_0_var(--line)]`}
+              className={`sticky bottom-0 left-0 z-40 border-t border-r border-[var(--line)] ${BG.panel} px-3 py-3 text-xs font-semibold text-[var(--navy)] shadow-[0_-1px_0_var(--line)] ${STICKY_EDGE}`}
               style={{ minWidth: `${MEMBER_COL_W}rem` }}
             >
               Total / rapport
             </td>
             <td
-              className={`sticky bottom-0 z-40 border-t border-r border-[var(--line)] ${BG.panel} shadow-[0_-1px_0_var(--line)]`}
+              className={`sticky bottom-0 z-40 border-t border-r border-[var(--line)] ${BG.panel} shadow-[0_-1px_0_var(--line)] ${STICKY_EDGE}`}
               style={{ left: `${STICKY_LEFT_TARGET}rem`, minWidth: `${TARGET_COL_W}rem` }}
             />
             {ordered.map((w, weekIndex) => {

@@ -1,5 +1,8 @@
 import { AddWeekModal } from "@/components/add-week-modal";
-import { CotisationsBoards } from "@/components/cotisations-boards";
+import {
+  CotisationsBoards,
+  type CotisationsTab,
+} from "@/components/cotisations-boards";
 import { CotisationsTontineFilter } from "@/components/cotisations-tontine-filter";
 import { listEnrolledForPeriod } from "@/lib/db/collections";
 import { DEFAULT_SETTINGS } from "@/lib/db/defaults";
@@ -14,10 +17,14 @@ import { canWriteGestion } from "@/lib/auth/permissions";
 import { requireGestionAccess } from "@/lib/auth/session";
 import type { Contribution, Settings, Week } from "@/lib/types";
 
+function resolveTab(raw: string | undefined): CotisationsTab {
+  return raw === "mois" ? "mois" : "seances";
+}
+
 export default async function CotisationsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tontine?: string }>;
+  searchParams: Promise<{ tontine?: string; tab?: string }>;
 }) {
   const session = await requireGestionAccess();
   const canWrite = canWriteGestion(session.user.role);
@@ -25,6 +32,7 @@ export default async function CotisationsPage({
   const periods = await listPeriods();
   const periodId = sp.tontine?.trim() || periods[0]?.id || "";
   const period = periods.find((p) => p.id === periodId) ?? null;
+  const tab = resolveTab(sp.tab);
 
   let weeks: Week[] = [];
   let contributions: Contribution[] = [];
@@ -67,6 +75,7 @@ export default async function CotisationsPage({
             <CotisationsTontineFilter
               periods={periods.map((p) => ({ id: p.id, name: p.name }))}
               value={periodId}
+              tab={tab}
             />
           )}
         </div>
@@ -86,6 +95,7 @@ export default async function CotisationsPage({
           contributions={contributions}
           penaltyAmount={settings.penaltyLateContribution}
           readOnly={!canWrite}
+          initialTab={tab}
         />
       )}
     </div>

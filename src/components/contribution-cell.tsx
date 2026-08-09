@@ -239,10 +239,10 @@ export function ContributionCell({
     return (
       <div className="flex min-w-[6.25rem] flex-col items-stretch gap-0.5">
         <div
-          className={`flex items-center justify-center gap-1 rounded-lg border px-1.5 py-1 text-[11px] font-semibold ${
+          className={`flex items-center justify-center gap-1 rounded-lg border px-1.5 py-1 text-[11px] font-semibold shadow-sm ${
             paid
-              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-              : "border-red-200 bg-red-50 text-red-800"
+              ? "border-emerald-200 bg-gradient-to-b from-emerald-50 to-emerald-100/80 text-emerald-900"
+              : "border-red-200 bg-gradient-to-b from-red-50 to-red-100/70 text-red-800"
           }`}
           title={paid ? formatFcfa(localAmount) : "Impayé"}
         >

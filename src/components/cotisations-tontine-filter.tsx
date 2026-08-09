@@ -7,9 +7,12 @@ type TontineOption = { id: string; name: string };
 export function CotisationsTontineFilter({
   periods,
   value,
+  tab,
 }: {
   periods: TontineOption[];
   value: string;
+  /** Conserve l’onglet actif au changement de tontine */
+  tab?: string;
 }) {
   const router = useRouter();
 
@@ -22,6 +25,7 @@ export function CotisationsTontineFilter({
           const next = e.target.value;
           const params = new URLSearchParams();
           if (next) params.set("tontine", next);
+          if (tab && tab !== "seances") params.set("tab", tab);
           router.push(`/gestion/cotisations?${params.toString()}`);
         }}
         className="cursor-pointer rounded-lg border border-[var(--line)] bg-white px-2.5 py-1.5 text-sm text-[var(--navy)] outline-none ring-[var(--brand)] focus:ring-2"

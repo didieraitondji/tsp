@@ -1,11 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  MemberIdentity,
+  MonthProgressBar,
+  STICKY_EDGE,
+} from "@/components/contributions-table-ui";
 import { buildMonthlyTotals, todayIsoLocal } from "@/lib/cotisations-report";
 import { formatFcfa } from "@/lib/format";
 import type { Contribution, EnrolledMember, Week } from "@/lib/types";
 
-const MEMBER_COL_W = 11; // rem
+const MEMBER_COL_W = 12; // rem — un peu plus large avec avatar
 const BG = {
   panel: "bg-[#fffaf5]",
   white: "bg-white",
@@ -57,6 +62,17 @@ export function ContributionsMonthlyGrid({
     [weeks, contributions, sortedMembers]
   );
 
+  const sessionsByMonth = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const w of weeks) {
+      const year = w.year || Number(w.date.slice(0, 4));
+      const month = w.month || Number(w.date.slice(5, 7));
+      const key = `${year}-${String(month).padStart(2, "0")}`;
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return map;
+  }, [weeks]);
+
   useEffect(() => {
     const scroller = scrollRef.current;
     const col = currentColRef.current;
@@ -90,19 +106,20 @@ export function ContributionsMonthlyGrid({
   return (
     <div
       ref={scrollRef}
-      className="max-h-[min(50vh,calc(100dvh-16rem))] overflow-auto overscroll-contain"
+      className="max-h-[min(55vh,calc(100dvh-16rem))] overflow-auto overscroll-contain"
     >
       <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
         <thead>
           <tr>
             <th
-              className={`sticky left-0 top-0 z-40 border-b border-r border-[var(--line)] ${BG.panel} px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)]`}
+              className={`sticky left-0 top-0 z-40 border-b border-r border-[var(--line)] ${BG.panel} px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)] ${STICKY_EDGE}`}
               style={{ minWidth: `${MEMBER_COL_W}rem`, maxWidth: `${MEMBER_COL_W}rem` }}
             >
               Membre
             </th>
             {months.map((mo, i) => {
               const isCurrent = mo.key === currentKey;
+              const sessions = sessionsByMonth.get(mo.key) ?? 0;
               return (
                 <th
                   key={mo.key}
@@ -110,12 +127,16 @@ export function ContributionsMonthlyGrid({
                   onMouseEnter={() => setHoveredMonth(mo.key)}
                   onMouseLeave={() => setHoveredMonth(null)}
                   className={`sticky top-0 z-30 border-b border-[var(--line)] px-2 py-2 text-center text-xs font-semibold whitespace-nowrap shadow-[0_1px_0_var(--line)] ${headerTone(mo.key, i)}`}
-                  style={{ minWidth: "7.5rem" }}
+                  style={{ minWidth: "8rem" }}
                 >
                   <span className="block capitalize">{mo.label}</span>
-                  {isCurrent && (
-                    <span className="mt-0.5 block text-[9px] font-medium uppercase tracking-wide opacity-80">
-                      Mois en cours
+                  {isCurrent ? (
+                    <span className="mt-1 inline-flex rounded-full bg-[#FFCD79]/25 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[#FFCD79]">
+                      En cours
+                    </span>
+                  ) : (
+                    <span className="mt-1 block text-[9px] font-medium tracking-wide opacity-70">
+                      {sessions} séance{sessions === 1 ? "" : "s"}
                     </span>
                   )}
                 </th>
@@ -123,7 +144,7 @@ export function ContributionsMonthlyGrid({
             })}
             <th
               className={`sticky top-0 z-30 border-b border-l border-[var(--line)] ${BG.panel} px-2 py-2 text-center text-xs font-semibold text-[var(--navy)] shadow-[0_1px_0_var(--line)]`}
-              style={{ minWidth: "7rem" }}
+              style={{ minWidth: "7.5rem" }}
             >
               Total
             </th>
@@ -139,32 +160,44 @@ export function ContributionsMonthlyGrid({
             return (
               <tr key={m.id} className="group">
                 <td
-                  className={`sticky left-0 z-20 border-b border-r border-[var(--line)] ${BG.panel} px-3 py-2 font-medium text-[var(--navy)] group-hover:bg-[#FFF8EB]`}
+                  className={`sticky left-0 z-20 border-b border-r border-[var(--line)] ${BG.panel} px-3 py-2.5 group-hover:bg-[#FFF8EB] ${STICKY_EDGE}`}
                   style={{ minWidth: `${MEMBER_COL_W}rem`, maxWidth: `${MEMBER_COL_W}rem` }}
                 >
-                  <span className="block truncate">
-                    {m.lastName} {m.firstName}
-                  </span>
+                  <MemberIdentity lastName={m.lastName} firstName={m.firstName} />
                 </td>
                 {months.map((mo, i) => {
                   const amount = row?.get(mo.key) ?? 0;
+                  const sessions = sessionsByMonth.get(mo.key) ?? 0;
+                  const expected = sessions * (m.weeklyTarget || 0);
                   return (
                     <td
                       key={mo.key}
                       onMouseEnter={() => setHoveredMonth(mo.key)}
                       onMouseLeave={() => setHoveredMonth(null)}
-                      className={`border-b border-[var(--line)] px-2 py-2 text-center text-xs tabular-nums ${colTone(mo.key, i)} ${
-                        amount > 0 ? "font-semibold text-[var(--navy)]" : "text-[var(--muted)]"
-                      }`}
+                      className={`border-b border-[var(--line)] px-2 py-2.5 text-center ${colTone(mo.key, i)}`}
                     >
-                      {amount > 0 ? formatFcfa(amount).replace(" FCFA", "") : "—"}
+                      <p
+                        className={`text-xs tabular-nums ${
+                          amount > 0
+                            ? "font-semibold text-[var(--navy)]"
+                            : "text-[var(--muted)]"
+                        }`}
+                      >
+                        {amount > 0 ? formatFcfa(amount).replace(" FCFA", "") : "—"}
+                      </p>
+                      <MonthProgressBar amount={amount} expected={expected} />
                     </td>
                   );
                 })}
                 <td
-                  className={`border-b border-l border-[var(--line)] ${BG.panel} px-2 py-2 text-center text-xs font-semibold tabular-nums text-[var(--navy)]`}
+                  className={`border-b border-l border-[var(--line)] ${BG.panel} px-2 py-2.5 text-center`}
                 >
-                  {memberTotal > 0 ? formatFcfa(memberTotal).replace(" FCFA", "") : "—"}
+                  <p className="text-xs font-bold tabular-nums text-[var(--navy)]">
+                    {memberTotal > 0 ? formatFcfa(memberTotal).replace(" FCFA", "") : "—"}
+                  </p>
+                  {memberTotal > 0 && (
+                    <p className="mt-0.5 text-[9px] text-[var(--muted)]">FCFA</p>
+                  )}
                 </td>
               </tr>
             );
@@ -173,7 +206,7 @@ export function ContributionsMonthlyGrid({
         <tfoot>
           <tr>
             <td
-              className={`sticky bottom-0 left-0 z-40 border-t border-r border-[var(--line)] ${BG.panel} px-3 py-3 text-xs font-semibold text-[var(--navy)] shadow-[0_-1px_0_var(--line)]`}
+              className={`sticky bottom-0 left-0 z-40 border-t border-r border-[var(--line)] ${BG.panel} px-3 py-3 text-xs font-semibold text-[var(--navy)] shadow-[0_-1px_0_var(--line)] ${STICKY_EDGE}`}
               style={{ minWidth: `${MEMBER_COL_W}rem` }}
             >
               Total mois
@@ -185,18 +218,22 @@ export function ContributionsMonthlyGrid({
                   key={mo.key}
                   onMouseEnter={() => setHoveredMonth(mo.key)}
                   onMouseLeave={() => setHoveredMonth(null)}
-                  className={`sticky bottom-0 z-30 border-t border-[var(--line)] px-2 py-3 text-center text-[11px] font-semibold tabular-nums text-[var(--navy)] shadow-[0_-1px_0_var(--line)] ${colTone(mo.key, i)}`}
+                  className={`sticky bottom-0 z-30 border-t border-[var(--line)] px-2 py-3 text-center shadow-[0_-1px_0_var(--line)] ${colTone(mo.key, i)}`}
                 >
-                  {formatFcfa(total)}
+                  <span className="inline-flex rounded-full bg-[#1D2D50] px-2.5 py-1 text-[11px] font-semibold tabular-nums text-[#FFCD79]">
+                    {formatFcfa(total).replace(" FCFA", "")}
+                  </span>
                 </td>
               );
             })}
             <td
-              className={`sticky bottom-0 z-30 border-t border-l border-[var(--line)] ${BG.panel} px-2 py-3 text-center text-[11px] font-semibold tabular-nums text-[var(--navy)] shadow-[0_-1px_0_var(--line)]`}
+              className={`sticky bottom-0 z-30 border-t border-l border-[var(--line)] ${BG.panel} px-2 py-3 text-center shadow-[0_-1px_0_var(--line)]`}
             >
-              {formatFcfa(
-                months.reduce((s, mo) => s + (monthTotals.get(mo.key) ?? 0), 0)
-              )}
+              <span className="inline-flex rounded-full border border-[#FFCD79] bg-[#FFF8EB] px-2.5 py-1 text-[11px] font-bold tabular-nums text-[var(--navy)]">
+                {formatFcfa(
+                  months.reduce((s, mo) => s + (monthTotals.get(mo.key) ?? 0), 0)
+                ).replace(" FCFA", "")}
+              </span>
             </td>
           </tr>
         </tfoot>
