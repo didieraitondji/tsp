@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContributionCell } from "@/components/contribution-cell";
 import { CopyWeekReportButton } from "@/components/copy-week-report-button";
+import { EditWeeklyTargetButton } from "@/components/edit-weekly-target-button";
 import {
   MemberIdentity,
   STICKY_EDGE,
   WeekColumnStats,
+  formatMemberShortName,
 } from "@/components/contributions-table-ui";
 import { orderWeeksForGrid, todayIsoLocal } from "@/lib/cotisations-report";
 import {
@@ -54,6 +56,7 @@ export function ContributionsGrid({
   penaltyAmount,
   readOnly = false,
   onContributionsChange,
+  onMemberTargetChange,
 }: {
   periodId: string;
   periodicity?: Periodicity | null;
@@ -63,6 +66,7 @@ export function ContributionsGrid({
   penaltyAmount: number;
   readOnly?: boolean;
   onContributionsChange?: (next: Contribution[]) => void;
+  onMemberTargetChange?: (memberId: string, weeklyTarget: number) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const nextColRef = useRef<HTMLTableCellElement>(null);
@@ -286,6 +290,18 @@ export function ContributionsGrid({
                   {formatFcfa(m.weeklyTarget).replace(" FCFA", "")}
                 </span>
                 <span className="mt-0.5 block text-[9px] text-[var(--muted)]">FCFA</span>
+                {!readOnly && (
+                  <EditWeeklyTargetButton
+                    compact
+                    periodId={periodId}
+                    memberId={m.id}
+                    memberLabel={formatMemberShortName(m.lastName, m.firstName)}
+                    currentTarget={m.weeklyTarget}
+                    onUpdated={(weeklyTarget) =>
+                      onMemberTargetChange?.(m.id, weeklyTarget)
+                    }
+                  />
+                )}
               </td>
               {ordered.map((w, weekIndex) => {
                 const c = map.get(`${m.id}:${w.id}`);

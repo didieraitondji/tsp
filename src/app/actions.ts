@@ -621,6 +621,49 @@ export async function enrollMemberAction(
   return { ok: true, memberId, periodId };
 }
 
+export type UpdateEnrollmentTargetResult =
+  | { ok: true; weeklyTarget: number }
+  | { ok: false; error?: string };
+
+/** Modifie la mise / cible d’un inscrit. N’altère pas les cotisations déjà marquées. */
+export async function updateEnrollmentTargetAction(
+  formData: FormData
+): Promise<UpdateEnrollmentTargetResult> {
+  await requireRole(["SUPER_ADMIN", "GESTIONNAIRE"]);
+  const periodId = String(formData.get("periodId") || "").trim();
+  const memberId = String(formData.get("memberId") || "").trim();
+  const weeklyTarget = Number(formData.get("weeklyTarget"));
+  if (!periodId || !memberId) return { ok: false, error: "Données manquantes." };
+  if (!Number.isFinite(weeklyTarget) || weeklyTarget <= 0) {
+    return { ok: false, error: "Cible invalide (montant > 0 requis)." };
+  }
+
+  const meta = await readMeta();
+  const period = meta.periods.find((p) => p.id === periodId);
+  if (!period) return { ok: false, error: "Tontine introuvable." };
+
+  const enrollments = await readCollectionForPeriodId<Enrollment>(periodId, "enrollments");
+  const idx = enrollments.findIndex((e) => e.memberId === memberId);
+  if (idx < 0) return { ok: false, error: "Inscription introuvable." };
+
+  const next = [...enrollments];
+  next[idx] = { ...next[idx], weeklyTarget };
+  await writeCollectionForPeriod(period, "enrollments", next);
+
+  const members = await globalMembersRepo.all();
+  const member = members.find((m) => m.id === memberId);
+  await audit(
+    "enrollment.target",
+    `${member ? `${member.lastName} ${member.firstName}` : memberId} → ${weeklyTarget}`
+  );
+
+  // Pas de revalidate cotisations : la grille met à jour l’état local (évite le jump scroll).
+  revalidatePath("/gestion/membres");
+  revalidatePath("/membre");
+  revalidatePath("/membre/cotisations");
+  return { ok: true, weeklyTarget };
+}
+
 export async function addWeekAction(formData: FormData) {
   await requireRole(["SUPER_ADMIN", "GESTIONNAIRE"]);
   const periodId = String(formData.get("periodId") || "").trim();

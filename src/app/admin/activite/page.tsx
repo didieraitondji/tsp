@@ -53,6 +53,7 @@ function labelOf(action: string): string {
     "member.create": "Membre créé",
     "member.update": "Membre modifié",
     "member.enroll": "Inscription tontine",
+    "enrollment.target": "Mise / cible modifiée",
     "user.create": "Compte créé",
     "user.update": "Compte modifié",
     "settings.update": "Paramètres mis à jour",

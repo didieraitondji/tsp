@@ -13,7 +13,7 @@ export function CotisationsBoards({
   periodId,
   periodName,
   periodicity,
-  members,
+  members: initialMembers,
   weeks,
   contributions: initialContributions,
   penaltyAmount,
@@ -33,10 +33,15 @@ export function CotisationsBoards({
   const router = useRouter();
   const [tab, setTab] = useState<CotisationsTab>(initialTab);
   const [contributions, setContributions] = useState(initialContributions);
+  const [members, setMembers] = useState(initialMembers);
 
   useEffect(() => {
     setContributions(initialContributions);
   }, [initialContributions, periodId]);
+
+  useEffect(() => {
+    setMembers(initialMembers);
+  }, [initialMembers, periodId]);
 
   useEffect(() => {
     setTab(initialTab);
@@ -50,6 +55,12 @@ export function CotisationsBoards({
     if (periodId) params.set("tontine", periodId);
     if (next !== "seances") params.set("tab", next);
     router.replace(`/gestion/cotisations?${params.toString()}`, { scroll: false });
+  };
+
+  const handleTargetChange = (memberId: string, weeklyTarget: number) => {
+    setMembers((prev) =>
+      prev.map((m) => (m.id === memberId ? { ...m, weeklyTarget } : m))
+    );
   };
 
   return (
@@ -107,6 +118,7 @@ export function CotisationsBoards({
           penaltyAmount={penaltyAmount}
           readOnly={readOnly}
           onContributionsChange={setContributions}
+          onMemberTargetChange={handleTargetChange}
         />
       ) : (
         <ContributionsMonthlyGrid

@@ -11,9 +11,11 @@ import { readCollectionForPeriodId } from "@/lib/db/store";
 import { formatFcfa, formatDate } from "@/lib/format";
 import { CreateMemberModal } from "@/components/create-member-modal";
 import { CreateTontineModal } from "@/components/create-tontine-modal";
+import { EditWeeklyTargetButton } from "@/components/edit-weekly-target-button";
 import { EnrollMemberModal } from "@/components/enroll-member-modal";
 import { InscritsTontineFilter } from "@/components/inscrits-tontine-filter";
 import { MemberRowActions } from "@/components/member-row-actions";
+import { formatMemberShortName } from "@/components/contributions-table-ui";
 import { canWriteGestion } from "@/lib/auth/permissions";
 import { requireGestionAccess } from "@/lib/auth/session";
 import type { Enrollment, Member, MemberStatus } from "@/lib/types";
@@ -360,7 +362,17 @@ export default async function MembresPage({
                         {m.phone || "—"}
                       </td>
                       <td className="px-3 py-3.5 font-medium text-[var(--navy)]">
-                        {formatFcfa(m.weeklyTarget)}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{formatFcfa(m.weeklyTarget)}</span>
+                          {canWrite && !m.archivedFromDirectory && filterTontineId ? (
+                            <EditWeeklyTargetButton
+                              periodId={filterTontineId}
+                              memberId={m.id}
+                              memberLabel={formatMemberShortName(m.lastName, m.firstName)}
+                              currentTarget={m.weeklyTarget}
+                            />
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-3 py-3.5">
                         <StatusPill status={m.status} />
