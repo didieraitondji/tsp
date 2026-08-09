@@ -104,6 +104,15 @@ async function withLock<T>(key: string, fn: () => Promise<T> | T): Promise<T> {
   }
 }
 
+/** Sérialise lecture-modification-écriture d’un bin de période (anti courses Mongo). */
+export async function withPeriodBinLock<T>(
+  periodId: string,
+  name: PeriodBinKey | string,
+  fn: () => Promise<T> | T
+): Promise<T> {
+  return withLock(`period-bin:${periodId}:${name}`, fn);
+}
+
 function emptyMeta(): AppMeta {
   return {
     version: 1,
@@ -501,8 +510,8 @@ export async function readCollectionForPeriodId<T extends { id?: string }>(
   return data.items ?? fallback;
 }
 
-/** Écrit une collection pour une période donnée (sans dépendre du cookie / cache). */
-export async function writeCollectionForPeriod<T extends { id?: string }>(
+/** Écriture brute d’un bin de période (appeler sous withPeriodBinLock si concurrent). */
+async function writeCollectionForPeriodUnsafe<T extends { id?: string }>(
   period: Period,
   name: PeriodBinKey,
   data: T[]
@@ -515,12 +524,40 @@ export async function writeCollectionForPeriod<T extends { id?: string }>(
     const db = await getMongoDb();
     await db.collection(name).deleteMany({ periodId: period.id });
     if (data.length) {
-      await db.collection(name).insertMany(data.map((item) => ({ ...item, periodId: period.id })));
+      await db.collection(name).insertMany(
+        data.map((item) => ({ ...item, periodId: period.id }))
+      );
     }
     return;
   }
 
   atomicWriteLocal(localPeriodFile(period.id, name), { items: data });
+}
+
+/** Écrit une collection pour une période donnée (sans dépendre du cookie / cache). */
+export async function writeCollectionForPeriod<T extends { id?: string }>(
+  period: Period,
+  name: PeriodBinKey,
+  data: T[]
+): Promise<void> {
+  await writeCollectionForPeriodUnsafe(period, name, data);
+}
+
+/**
+ * Lecture → transformation → écriture atomique d’un bin de période
+ * (évite les courses deleteMany/insertMany qui dupliquent ou perdent des lignes).
+ */
+export async function updateCollectionForPeriod<T extends { id?: string }>(
+  period: Period,
+  name: PeriodBinKey,
+  updater: (items: T[]) => T[] | Promise<T[]>
+): Promise<T[]> {
+  return withPeriodBinLock(period.id, name, async () => {
+    const current = await readCollectionForPeriodId<T>(period.id, name);
+    const next = await updater(current);
+    await writeCollectionForPeriodUnsafe(period, name, next);
+    return next;
+  });
 }
 
 /** Supprime les données métier d’une période (Mongo / fichiers locaux). */

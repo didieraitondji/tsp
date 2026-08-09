@@ -36,6 +36,8 @@ import {
   readCollectionForPeriodId,
   readMeta,
   readObjectForPeriodId,
+  updateCollectionForPeriod,
+  withPeriodBinLock,
   writeCollectionForPeriod,
 } from "./store";
 
@@ -186,9 +188,32 @@ export const CASH_ORIGIN_CONTRIBUTION = "Cotisation";
 export const CASH_ORIGIN_LOAN = "Prêt octroyé";
 export const CASH_ORIGIN_PENALTY = "Pénalité";
 
+function cashAutoKey(origin: string | undefined, reference: string | undefined): string | null {
+  if (!origin || !reference) return null;
+  return `${origin}::${reference}`;
+}
+
+/** Une seule écriture par (origin, reference) — garde la plus ancienne. */
+export function dedupeCashEntriesByOriginReference(entries: CashEntry[]): CashEntry[] {
+  const kept = new Map<string, CashEntry>();
+  const passthrough: CashEntry[] = [];
+
+  for (const e of sortCashEntries(entries)) {
+    const key = cashAutoKey(e.origin, e.reference);
+    if (!key) {
+      passthrough.push(e);
+      continue;
+    }
+    if (!kept.has(key)) kept.set(key, e);
+  }
+
+  return [...passthrough, ...kept.values()];
+}
+
 async function savePeriodCashbook(period: Period, entries: CashEntry[]): Promise<CashEntry[]> {
   const settings = await readObjectForPeriodId(period.id, "settings", DEFAULT_SETTINGS);
-  const next = await rebuildCashBalances(entries, settings.cashOpeningBalance);
+  const deduped = dedupeCashEntriesByOriginReference(entries);
+  const next = await rebuildCashBalances(deduped, settings.cashOpeningBalance);
   await writeCollectionForPeriod(period, "cashbook", next);
   return next;
 }
@@ -203,13 +228,17 @@ export async function removeCashEntriesByReference(input: {
   const period = meta.periods.find((p) => p.id === input.periodId);
   if (!period) return 0;
 
-  const items = await readCollectionForPeriodId<CashEntry>(input.periodId, "cashbook");
-  const next = items.filter(
-    (e) => !(e.reference === input.reference && e.origin === input.origin)
-  );
-  if (next.length === items.length) return 0;
-  await savePeriodCashbook(period, next);
-  return items.length - next.length;
+  let removed = 0;
+  await updateCollectionForPeriod<CashEntry>(period, "cashbook", async (items) => {
+    const next = items.filter(
+      (e) => !(e.reference === input.reference && e.origin === input.origin)
+    );
+    removed = items.length - next.length;
+    if (removed === 0) return items;
+    const settings = await readObjectForPeriodId(period.id, "settings", DEFAULT_SETTINGS);
+    return rebuildCashBalances(next, settings.cashOpeningBalance);
+  });
+  return removed;
 }
 
 /**
@@ -223,31 +252,26 @@ export async function syncContributionCashEntry(input: {
   description: string;
   recordedBy: string;
 }): Promise<void> {
-  const items = await readCollectionForPeriodId<CashEntry>(input.period.id, "cashbook");
-  const idx = items.findIndex(
-    (e) => e.reference === input.contributionId && e.origin === CASH_ORIGIN_CONTRIBUTION
-  );
+  const settings = await readObjectForPeriodId(input.period.id, "settings", DEFAULT_SETTINGS);
 
-  let next: CashEntry[];
-  if (input.amount <= 0) {
-    if (idx < 0) return;
-    next = items.filter((_, i) => i !== idx);
-  } else if (idx >= 0) {
-    next = [...items];
-    next[idx] = {
-      ...next[idx],
-      date: input.date,
-      type: "Entrée",
-      description: input.description,
-      inflow: input.amount,
-      outflow: 0,
-      recordedBy: input.recordedBy,
-    };
-  } else {
-    next = [
-      ...items,
-      {
-        id: newId("TXN"),
+  await updateCollectionForPeriod<CashEntry>(input.period, "cashbook", async (items) => {
+    const existing = items.filter(
+      (e) =>
+        e.reference === input.contributionId && e.origin === CASH_ORIGIN_CONTRIBUTION
+    );
+    const others = items.filter(
+      (e) =>
+        !(e.reference === input.contributionId && e.origin === CASH_ORIGIN_CONTRIBUTION)
+    );
+
+    let next: CashEntry[];
+    if (input.amount <= 0) {
+      if (existing.length === 0) return items;
+      next = others;
+    } else {
+      const base = existing[0];
+      const entry: CashEntry = {
+        id: base?.id || newId("TXN"),
         date: input.date,
         type: "Entrée",
         description: input.description,
@@ -257,27 +281,28 @@ export async function syncContributionCashEntry(input: {
         reference: input.contributionId,
         origin: CASH_ORIGIN_CONTRIBUTION,
         recordedBy: input.recordedBy,
-        createdAt: new Date().toISOString(),
-      },
-    ];
-  }
+        createdAt: base?.createdAt || new Date().toISOString(),
+      };
+      next = [...others, entry];
+    }
 
-  await savePeriodCashbook(input.period, next);
+    return rebuildCashBalances(next, settings.cashOpeningBalance);
+  });
 }
 
 /**
  * Aligne le journal caisse sur cotisations + prêts décaissés (rattrapage + soldes).
+ * Déduplique aussi les écritures auto en double (même origin + reference).
  */
 export async function reconcileContributionCashEntries(periodId: string): Promise<number> {
   const meta = await readMeta();
   const period = meta.periods.find((p) => p.id === periodId);
   if (!period) return 0;
 
-  const [contributions, weeks, loans, cashbook, settings] = await Promise.all([
+  const [contributions, weeks, loans, settings] = await Promise.all([
     readCollectionForPeriodId<Contribution>(periodId, "contributions"),
     readCollectionForPeriodId<{ id: string; date: string }>(periodId, "weeks"),
     readCollectionForPeriodId<Loan>(periodId, "loans"),
-    readCollectionForPeriodId<CashEntry>(periodId, "cashbook"),
     readObjectForPeriodId(periodId, "settings", DEFAULT_SETTINGS),
   ]);
 
@@ -294,115 +319,130 @@ export async function reconcileContributionCashEntries(periodId: string): Promis
   );
   const disbursedIds = new Set(disbursedLoans.map((l) => l.id));
 
-  let next = cashbook.filter((e) => {
-    if (e.origin === CASH_ORIGIN_CONTRIBUTION) {
-      return e.reference != null && paidIds.has(e.reference);
-    }
-    if (e.origin === CASH_ORIGIN_LOAN) {
-      return e.reference != null && disbursedIds.has(e.reference);
-    }
-    return true;
-  });
-  let touched = next.length !== cashbook.length;
+  return withPeriodBinLock(period.id, "cashbook", async () => {
+    const cashbook = await readCollectionForPeriodId<CashEntry>(periodId, "cashbook");
+    const beforeCount = cashbook.length;
 
-  for (const c of paid) {
-    const date =
-      weekDate.get(c.weekId) ||
-      (c.paidAt && c.paidAt.length >= 10 ? c.paidAt.slice(0, 10) : new Date().toISOString().slice(0, 10));
-    const description = `Cotisation ${c.id}`;
-    const idx = next.findIndex(
-      (e) => e.origin === CASH_ORIGIN_CONTRIBUTION && e.reference === c.id
-    );
-    if (idx < 0) {
-      next = [
-        ...next,
-        {
-          id: newId("TXN"),
+    let next = dedupeCashEntriesByOriginReference(cashbook);
+    next = next.filter((e) => {
+      if (e.origin === CASH_ORIGIN_CONTRIBUTION) {
+        return e.reference != null && paidIds.has(e.reference);
+      }
+      if (e.origin === CASH_ORIGIN_LOAN) {
+        return e.reference != null && disbursedIds.has(e.reference);
+      }
+      return true;
+    });
+    let touched = next.length !== beforeCount;
+
+    for (const c of paid) {
+      const date =
+        weekDate.get(c.weekId) ||
+        (c.paidAt && c.paidAt.length >= 10
+          ? c.paidAt.slice(0, 10)
+          : new Date().toISOString().slice(0, 10));
+      const description = `Cotisation ${c.id}`;
+      const idx = next.findIndex(
+        (e) => e.origin === CASH_ORIGIN_CONTRIBUTION && e.reference === c.id
+      );
+      if (idx < 0) {
+        next = [
+          ...next,
+          {
+            id: newId("TXN"),
+            date,
+            type: "Entrée",
+            description,
+            inflow: c.amount,
+            outflow: 0,
+            balance: 0,
+            reference: c.id,
+            origin: CASH_ORIGIN_CONTRIBUTION,
+            recordedBy: c.recordedBy,
+            createdAt: c.paidAt || new Date().toISOString(),
+          },
+        ];
+        touched = true;
+      } else if (
+        next[idx].inflow !== c.amount ||
+        next[idx].date !== date ||
+        next[idx].type !== "Entrée"
+      ) {
+        next = [...next];
+        next[idx] = {
+          ...next[idx],
           date,
           type: "Entrée",
           description,
           inflow: c.amount,
           outflow: 0,
-          balance: 0,
-          reference: c.id,
-          origin: CASH_ORIGIN_CONTRIBUTION,
-          recordedBy: c.recordedBy,
-          createdAt: c.paidAt || new Date().toISOString(),
-        },
-      ];
-      touched = true;
-    } else if (
-      next[idx].inflow !== c.amount ||
-      next[idx].date !== date ||
-      next[idx].type !== "Entrée"
-    ) {
-      next = [...next];
-      next[idx] = {
-        ...next[idx],
-        date,
-        type: "Entrée",
-        description,
-        inflow: c.amount,
-        outflow: 0,
-      };
-      touched = true;
+        };
+        touched = true;
+      }
     }
-  }
 
-  for (const loan of disbursedLoans) {
-    const amount = loan.amount + (loan.withdrawalFee || 0);
-    const date = loan.disbursedAt?.slice(0, 10) || loan.date;
-    const description = `Prêt ${loan.id}`;
-    const idx = next.findIndex(
-      (e) => e.origin === CASH_ORIGIN_LOAN && e.reference === loan.id
-    );
-    if (idx < 0) {
-      next = [
-        ...next,
-        {
-          id: newId("TXN"),
+    for (const loan of disbursedLoans) {
+      const amount = loan.amount + (loan.withdrawalFee || 0);
+      const date = loan.disbursedAt?.slice(0, 10) || loan.date;
+      const description = `Prêt ${loan.id}`;
+      const idx = next.findIndex(
+        (e) => e.origin === CASH_ORIGIN_LOAN && e.reference === loan.id
+      );
+      if (idx < 0) {
+        next = [
+          ...next,
+          {
+            id: newId("TXN"),
+            date,
+            type: "Sortie",
+            description,
+            inflow: 0,
+            outflow: amount,
+            balance: 0,
+            reference: loan.id,
+            origin: CASH_ORIGIN_LOAN,
+            recordedBy: loan.createdBy,
+            createdAt: loan.disbursedAt || loan.createdAt,
+          },
+        ];
+        touched = true;
+      } else if (
+        next[idx].outflow !== amount ||
+        next[idx].type !== "Sortie" ||
+        next[idx].date !== date
+      ) {
+        next = [...next];
+        next[idx] = {
+          ...next[idx],
           date,
           type: "Sortie",
           description,
           inflow: 0,
           outflow: amount,
-          balance: 0,
-          reference: loan.id,
-          origin: CASH_ORIGIN_LOAN,
-          recordedBy: loan.createdBy,
-          createdAt: loan.disbursedAt || loan.createdAt,
-        },
-      ];
-      touched = true;
-    } else if (
-      next[idx].outflow !== amount ||
-      next[idx].type !== "Sortie" ||
-      next[idx].date !== date
-    ) {
-      next = [...next];
-      next[idx] = {
-        ...next[idx],
-        date,
-        type: "Sortie",
-        description,
-        inflow: 0,
-        outflow: amount,
-      };
-      touched = true;
+        };
+        touched = true;
+      }
     }
-  }
 
-  const rebuilt = await rebuildCashBalances(next, settings.cashOpeningBalance);
-  const balancesDrift =
-    rebuilt.length !== cashbook.length ||
-    rebuilt.some((e, i) => {
-      const cur = sortCashEntries(cashbook)[i];
-      return !cur || cur.id !== e.id || cur.balance !== e.balance || cur.inflow !== e.inflow || cur.outflow !== e.outflow;
-    });
+    const rebuilt = await rebuildCashBalances(next, settings.cashOpeningBalance);
+    const sortedPrev = sortCashEntries(dedupeCashEntriesByOriginReference(cashbook));
+    const balancesDrift =
+      rebuilt.length !== sortedPrev.length ||
+      rebuilt.some((e, i) => {
+        const cur = sortedPrev[i];
+        return (
+          !cur ||
+          cur.id !== e.id ||
+          cur.balance !== e.balance ||
+          cur.inflow !== e.inflow ||
+          cur.outflow !== e.outflow
+        );
+      });
 
-  if (!touched && !balancesDrift) return 0;
-  await writeCollectionForPeriod(period, "cashbook", rebuilt);
-  return 1;
+    if (!touched && !balancesDrift) return 0;
+    await writeCollectionForPeriod(period, "cashbook", rebuilt);
+    return beforeCount - rebuilt.length || 1;
+  });
 }
 
 export async function appendCashEntry(input: {
@@ -433,9 +473,14 @@ export async function appendCashEntry(input: {
     const meta = await readMeta();
     const period = meta.periods.find((p) => p.id === input.periodId);
     if (!period) throw new Error("Tontine introuvable");
-    const items = await readCollectionForPeriodId<CashEntry>(input.periodId, "cashbook");
-    const next = await savePeriodCashbook(period, [...items, entry]);
-    return next[next.length - 1];
+    const settings = await readObjectForPeriodId(period.id, "settings", DEFAULT_SETTINGS);
+    const next = await updateCollectionForPeriod<CashEntry>(period, "cashbook", async (items) => {
+      return rebuildCashBalances(
+        dedupeCashEntriesByOriginReference([...items, entry]),
+        settings.cashOpeningBalance
+      );
+    });
+    return next.find((e) => e.id === entry.id) ?? next[next.length - 1];
   }
 
   const settings = await settingsRepo.get();
