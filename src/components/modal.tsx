@@ -38,7 +38,7 @@ export function Modal({
   return (
     <dialog
       ref={dialogRef}
-      className="fixed left-1/2 top-1/2 z-50 m-0 flex max-h-[min(92vh,44rem)] w-[min(calc(100%-1.5rem),28rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[1.35rem] border border-[var(--line)] bg-[var(--panel)] p-0 shadow-[0_28px_80px_-24px_rgba(29,45,80,0.55)] open:animate-[modalIn_180ms_ease-out] backdrop:bg-[rgba(29,45,80,0.42)] backdrop:backdrop-blur-[3px]"
+      className="fixed left-1/2 top-1/2 z-50 m-0 max-h-[min(92vh,44rem)] w-[min(calc(100%-1.5rem),28rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[1.35rem] border border-[var(--line)] bg-[var(--panel)] p-0 shadow-[0_28px_80px_-24px_rgba(29,45,80,0.55)] open:flex open:animate-[modalIn_180ms_ease-out] backdrop:bg-[rgba(29,45,80,0.42)] backdrop:backdrop-blur-[3px]"
       style={wide ? { width: "min(calc(100% - 1.5rem), 36rem)" } : undefined}
       onClose={onClose}
       onClick={(e) => {
