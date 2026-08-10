@@ -208,7 +208,7 @@ export function ContributionCell({
   };
 
   return (
-    <div className="flex min-w-[6.25rem] flex-col items-stretch gap-0.5">
+    <div className="flex min-w-[5.25rem] flex-col items-stretch gap-0.5 sm:min-w-[6.25rem]">
       {isLocked ? (
         <>
           <div

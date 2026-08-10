@@ -76,7 +76,7 @@ export function EditWeeklyTargetButton({
           title="Modifier la cible"
         >
           <Pencil className="h-2.5 w-2.5" strokeWidth={2} />
-          Modifier
+          <span className="max-sm:hidden">Modifier</span>
         </button>
       ) : (
         <button

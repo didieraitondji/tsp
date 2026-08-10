@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { ContributionCell } from "@/components/contribution-cell";
 import { CopyWeekReportButton } from "@/components/copy-week-report-button";
 import { EditWeeklyTargetButton } from "@/components/edit-weekly-target-button";
@@ -26,10 +33,27 @@ import type {
   Week,
 } from "@/lib/types";
 
-const MEMBER_COL_W = 12; // rem — avatar + nom
-const TARGET_COL_W = 6.5;
-const STICKY_LEFT_TARGET = MEMBER_COL_W;
+const MEMBER_COL_W_DESKTOP = 12; // rem — avatar + nom
+const TARGET_COL_W_DESKTOP = 6.5;
+const MEMBER_COL_W_MOBILE = 7.25;
+const TARGET_COL_W_MOBILE = 3.5;
+const WEEK_COL_MIN_DESKTOP = "7.25rem";
+const WEEK_COL_MIN_MOBILE = "5.75rem";
 const WEEKDAY_SHORT = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."] as const;
+
+function subscribeMobile(cb: () => void) {
+  const mq = window.matchMedia("(max-width: 640px)");
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+}
+
+function getMobileSnapshot() {
+  return window.matchMedia("(max-width: 640px)").matches;
+}
+
+function getServerMobileSnapshot() {
+  return false;
+}
 
 /** Fonds opaques (évite le bleed-through sous sticky header/footer). */
 const BG = {
@@ -80,6 +104,15 @@ export function ContributionsGrid({
   const alignedForPeriodRef = useRef<string | null>(null);
   const today = todayIsoLocal();
   const [hoveredWeekId, setHoveredWeekId] = useState<string | null>(null);
+  const isMobile = useSyncExternalStore(
+    subscribeMobile,
+    getMobileSnapshot,
+    getServerMobileSnapshot
+  );
+  const MEMBER_COL_W = isMobile ? MEMBER_COL_W_MOBILE : MEMBER_COL_W_DESKTOP;
+  const TARGET_COL_W = isMobile ? TARGET_COL_W_MOBILE : TARGET_COL_W_DESKTOP;
+  const STICKY_LEFT_TARGET = MEMBER_COL_W;
+  const weekColMin = isMobile ? WEEK_COL_MIN_MOBILE : WEEK_COL_MIN_DESKTOP;
 
   const { ordered, nextId } = useMemo(() => orderWeeksForGrid(weeks, today), [weeks, today]);
 
@@ -145,10 +178,11 @@ export function ContributionsGrid({
     [sortedMembers, visibleMemberIds]
   );
 
-  // Aligne « Prochaine » une seule fois par tontine (pas à chaque marquage).
+  // Aligne « Prochaine » une seule fois par tontine / largeur sticky.
   useEffect(() => {
     if (!nextId) return;
-    if (alignedForPeriodRef.current === periodId) return;
+    const alignKey = `${periodId}:${MEMBER_COL_W}:${TARGET_COL_W}`;
+    if (alignedForPeriodRef.current === alignKey) return;
     let cancelled = false;
 
     const alignNextColumn = () => {
@@ -168,11 +202,11 @@ export function ContributionsGrid({
       requestAnimationFrame(() => {
         if (cancelled) return;
         if (alignNextColumn()) {
-          alignedForPeriodRef.current = periodId;
+          alignedForPeriodRef.current = alignKey;
         } else {
           window.setTimeout(() => {
             if (cancelled) return;
-            if (alignNextColumn()) alignedForPeriodRef.current = periodId;
+            if (alignNextColumn()) alignedForPeriodRef.current = alignKey;
           }, 80);
         }
       });
@@ -182,7 +216,7 @@ export function ContributionsGrid({
       cancelled = true;
       cancelAnimationFrame(id);
     };
-  }, [ordered, nextId, periodId]);
+  }, [ordered, nextId, periodId, MEMBER_COL_W, TARGET_COL_W]);
 
   if (weeks.length === 0) {
     return (
@@ -240,20 +274,21 @@ export function ContributionsGrid({
         <thead>
           <tr>
             <th
-              className={`sticky left-0 top-0 z-40 border-b border-r border-[var(--line)] ${BG.panel} px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)] ${STICKY_EDGE}`}
+              className={`sticky left-0 top-0 z-40 border-b border-r border-[var(--line)] ${BG.panel} px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)] sm:px-3 ${STICKY_EDGE}`}
               style={{ minWidth: `${MEMBER_COL_W}rem`, maxWidth: `${MEMBER_COL_W}rem` }}
             >
               Membre
             </th>
             <th
-              className={`sticky top-0 z-40 border-b border-r border-[var(--line)] ${BG.panel} px-2 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)] ${STICKY_EDGE}`}
+              className={`sticky top-0 z-40 border-b border-r border-[var(--line)] ${BG.panel} px-1.5 py-2.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)] shadow-[0_1px_0_var(--line)] sm:px-2 ${STICKY_EDGE}`}
               style={{
                 left: `${STICKY_LEFT_TARGET}rem`,
                 minWidth: `${TARGET_COL_W}rem`,
                 maxWidth: `${TARGET_COL_W}rem`,
               }}
             >
-              Cible
+              <span className="sm:hidden">Cib.</span>
+              <span className="hidden sm:inline">Cible</span>
             </th>
             {ordered.map((w, weekIndex) => {
               const isNext = w.id === nextId;
@@ -271,8 +306,8 @@ export function ContributionsGrid({
                   onMouseEnter={() => setHoveredWeekId(w.id)}
                   onMouseLeave={() => setHoveredWeekId(null)}
                   title={formatDate(w.date)}
-                  className={`sticky top-0 z-30 border-b border-[var(--line)] px-2 py-2 text-center text-xs font-semibold whitespace-nowrap shadow-[0_1px_0_var(--line)] ${headerColTone(w, weekIndex)}`}
-                  style={{ minWidth: "7.25rem" }}
+                  className={`sticky top-0 z-30 border-b border-[var(--line)] px-1.5 py-2 text-center text-xs font-semibold whitespace-nowrap shadow-[0_1px_0_var(--line)] sm:px-2 ${headerColTone(w, weekIndex)}`}
+                  style={{ minWidth: weekColMin }}
                 >
                   <span className="block text-[10px] font-medium uppercase tracking-wide opacity-80">
                     {weekdayShort(w.date)}
@@ -298,23 +333,29 @@ export function ContributionsGrid({
           {rowMembers.map((m) => (
             <tr key={m.id} className="group">
               <td
-                className={`sticky left-0 z-20 border-b border-r border-[var(--line)] ${BG.panel} px-3 py-2 group-hover:bg-[#FFF8EB] ${STICKY_EDGE}`}
+                className={`sticky left-0 z-20 border-b border-r border-[var(--line)] ${BG.panel} px-2 py-2 group-hover:bg-[#FFF8EB] sm:px-3 ${STICKY_EDGE}`}
                 style={{ minWidth: `${MEMBER_COL_W}rem`, maxWidth: `${MEMBER_COL_W}rem` }}
               >
-                <MemberIdentity lastName={m.lastName} firstName={m.firstName} />
+                <MemberIdentity
+                  lastName={m.lastName}
+                  firstName={m.firstName}
+                  compact={isMobile}
+                />
               </td>
               <td
-                className={`sticky z-20 border-b border-r border-[var(--line)] ${BG.panel} px-2 py-2 text-xs tabular-nums text-[var(--muted)] group-hover:bg-[#FFF8EB] ${STICKY_EDGE}`}
+                className={`sticky z-20 border-b border-r border-[var(--line)] ${BG.panel} px-1.5 py-2 text-xs tabular-nums text-[var(--muted)] group-hover:bg-[#FFF8EB] sm:px-2 ${STICKY_EDGE}`}
                 style={{
                   left: `${STICKY_LEFT_TARGET}rem`,
                   minWidth: `${TARGET_COL_W}rem`,
                   maxWidth: `${TARGET_COL_W}rem`,
                 }}
               >
-                <span className="font-medium text-[var(--navy)]">
+                <span className="font-medium tabular-nums text-[var(--navy)]">
                   {formatFcfa(m.weeklyTarget).replace(" FCFA", "")}
                 </span>
-                <span className="mt-0.5 block text-[9px] text-[var(--muted)]">FCFA</span>
+                <span className="mt-0.5 hidden text-[9px] text-[var(--muted)] sm:block">
+                  FCFA
+                </span>
                 {!readOnly && (
                   <EditWeeklyTargetButton
                     compact

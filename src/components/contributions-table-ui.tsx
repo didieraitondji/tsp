@@ -6,26 +6,48 @@ export function memberInitials(lastName: string, firstName: string): string {
   return `${a}${b}`.toUpperCase() || "?";
 }
 
-/** « A. Didier » — initiale du nom + prénoms. */
+/**
+ * Dernier prénom « significatif » (> 2 lettres), pour les libellés compacts.
+ * Ex. « S. Isabelle Félicité » → « Félicité », « M. Paul Jaurès » → « Jaurès ».
+ */
+export function pickDisplayFirstName(firstName: string): string {
+  const parts = (firstName || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "";
+  const letterCount = (p: string) => (p.match(/\p{L}/gu) ?? []).length;
+  const significant = parts.filter((p) => letterCount(p) > 2);
+  if (significant.length > 0) return significant[significant.length - 1];
+  return parts[parts.length - 1] ?? "";
+}
+
+/** « A. Didier » — initiale du nom + dernier prénom significatif. */
 export function formatMemberShortName(lastName: string, firstName: string): string {
   const initial = (lastName || "").trim()[0]?.toUpperCase() || "";
-  const prenoms = (firstName || "").trim();
-  if (initial && prenoms) return `${initial}. ${prenoms}`;
-  if (prenoms) return prenoms;
+  const prenom = pickDisplayFirstName(firstName);
+  if (initial && prenom) return `${initial}. ${prenom}`;
+  if (prenom) return prenom;
   return (lastName || "").trim() || "—";
 }
 
 export function MemberIdentity({
   lastName,
   firstName,
+  compact = false,
 }: {
   lastName: string;
   firstName: string;
+  /** Avatar plus petit / espacement réduit (mobile). */
+  compact?: boolean;
 }) {
+  const fullName = `${(lastName || "").trim()} ${(firstName || "").trim()}`.trim();
   return (
-    <div className="flex min-w-0 items-center gap-2.5">
+    <div
+      className={`flex min-w-0 items-center ${compact ? "gap-1.5" : "gap-2.5"}`}
+      title={fullName || undefined}
+    >
       <span
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#1D2D50] text-[10px] font-bold tracking-wide text-[#FFCD79] ring-1 ring-[#FFCD79]/25"
+        className={`flex shrink-0 items-center justify-center rounded-full bg-[#1D2D50] font-bold tracking-wide text-[#FFCD79] ring-1 ring-[#FFCD79]/25 ${
+          compact ? "h-6 w-6 text-[9px]" : "h-7 w-7 text-[10px]"
+        }`}
         aria-hidden
       >
         {memberInitials(lastName, firstName)}
