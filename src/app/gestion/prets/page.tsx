@@ -1,5 +1,6 @@
 import { Handshake, Wallet, AlertCircle, Clock } from "lucide-react";
 import { CreateLoanModal } from "@/components/create-loan-modal";
+import { DeleteLoanButton } from "@/components/delete-loan-button";
 import { LoanApprovalActions } from "@/components/loan-approval-actions";
 import { PretsTontineFilter } from "@/components/prets-tontine-filter";
 import { listEnrolledForPeriod, usersRepo } from "@/lib/db/collections";
@@ -10,7 +11,7 @@ import { readCollectionForPeriodId, readObjectForPeriodId } from "@/lib/db/store
 import { formatDate, formatFcfa } from "@/lib/format";
 import { canApproveLoans, canWriteGestion } from "@/lib/auth/permissions";
 import { requireGestionAccess } from "@/lib/auth/session";
-import type { Loan, LoanStatus, User } from "@/lib/types";
+import type { Loan, LoanStatus, Repayment, User } from "@/lib/types";
 
 function StatusPill({ status }: { status: LoanStatus }) {
   const styles =
@@ -97,6 +98,10 @@ export default async function PretsPage({
   const loans = period
     ? await readCollectionForPeriodId<Loan>(period.id, "loans")
     : [];
+  const repayments = period
+    ? await readCollectionForPeriodId<Repayment>(period.id, "repayments")
+    : [];
+  const repaymentLoanIds = new Set(repayments.map((r) => r.loanId));
   const byId = new Map(members.map((m) => [m.id, m]));
   const usersById = new Map(users.map((u) => [u.id, u]));
 
@@ -265,6 +270,14 @@ export default async function PretsPage({
                         l.status === "En attente" &&
                         inQuorum &&
                         !alreadyVoted;
+                      const canDelete =
+                        canWrite &&
+                        l.repaid === 0 &&
+                        !repaymentLoanIds.has(l.id);
+                      const hasCashImpact =
+                        Boolean(l.disbursedAt) ||
+                        l.status === "En cours" ||
+                        l.status === "En retard";
 
                       return (
                         <tr
@@ -301,11 +314,25 @@ export default async function PretsPage({
                             <StatusPill status={l.status} />
                           </td>
                           <td className="px-5 py-3.5">
-                            <LoanApprovalActions
-                              periodId={period.id}
-                              loanId={l.id}
-                              canDecide={canDecide}
-                            />
+                            <div className="flex flex-wrap items-center gap-1">
+                              <LoanApprovalActions
+                                periodId={period.id}
+                                loanId={l.id}
+                                canDecide={canDecide}
+                              />
+                              {canDelete ? (
+                                <DeleteLoanButton
+                                  loanId={l.id}
+                                  periodId={period.id}
+                                  memberLabel={
+                                    m ? memberDisplayName(m) : l.memberId
+                                  }
+                                  amount={l.amount}
+                                  withdrawalFee={l.withdrawalFee || 0}
+                                  hasCashImpact={hasCashImpact}
+                                />
+                              ) : null}
+                            </div>
                             {l.status === "En attente" && alreadyVoted && (
                               <p className="text-[11px] text-[var(--muted)]">Déjà voté</p>
                             )}

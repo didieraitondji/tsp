@@ -6,6 +6,7 @@ import { auditRepo, globalMembersRepo, settingsRepo, usersRepo } from "@/lib/db/
 import {
   appendCashEntry,
   applyLatePenaltiesForWeek,
+  CASH_ORIGIN_LOAN,
   CASH_ORIGIN_PENALTY,
   computeLoanFigures,
   markContributionStatus,
@@ -1000,10 +1001,14 @@ export async function applyLateReportPenaltiesAction(
 export async function createLoanAction(formData: FormData) {
   const session = await requireGestionWrite();
   const periodId = String(formData.get("periodId") || "").trim();
+  const feeRaw = String(formData.get("withdrawalFee") ?? "").trim();
+  const feeParsed =
+    feeRaw === "" ? 0 : Number(feeRaw.replace(",", "."));
   const parsed = loanInputSchema.safeParse({
     memberId: formData.get("memberId"),
     date: formData.get("date"),
     amount: Number(formData.get("amount")),
+    withdrawalFee: Number.isFinite(feeParsed) ? Math.max(0, feeParsed) : 0,
     dueDate: formData.get("dueDate"),
     witnessName: formData.get("witnessName") || undefined,
     witnessPhone: formData.get("witnessPhone") || undefined,
@@ -1026,7 +1031,12 @@ export async function createLoanAction(formData: FormData) {
   if (requiredApproverIds.length === 0) return;
 
   const settings = await readObjectForPeriodId(periodId, "settings", DEFAULT_SETTINGS);
-  const figures = computeLoanFigures(parsed.data.amount, settings);
+  // Champ toujours envoyé : vide/0 = 0 FCFA ; prérempli côté UI avec le taux paramètres.
+  const figures = computeLoanFigures(
+    parsed.data.amount,
+    settings,
+    parsed.data.withdrawalFee ?? 0
+  );
   const year = settings.year;
   const existing = await readCollectionForPeriodId<Loan>(periodId, "loans");
   const loanId = nextSequentialId(
@@ -1146,6 +1156,49 @@ export async function decideLoanAction(formData: FormData) {
   await writeCollectionForPeriod(period, "loans", copy);
   await audit("loan.approve", loanId);
   revalidatePath("/gestion/prets");
+  return;
+}
+
+export async function deleteLoanAction(formData: FormData) {
+  await requireGestionWrite();
+  const periodId = String(formData.get("periodId") || "").trim();
+  const loanId = String(formData.get("loanId") || "").trim();
+  if (!periodId || !loanId) return;
+
+  const meta = await readMeta();
+  const period = meta.periods.find((p) => p.id === periodId);
+  if (!period) return;
+
+  const [loans, repayments] = await Promise.all([
+    readCollectionForPeriodId<Loan>(periodId, "loans"),
+    readCollectionForPeriodId<Repayment>(periodId, "repayments"),
+  ]);
+  const loan = loans.find((l) => l.id === loanId);
+  if (!loan) return;
+  if (loan.repaid > 0 || repayments.some((r) => r.loanId === loanId)) return;
+
+  await writeCollectionForPeriod(
+    period,
+    "loans",
+    loans.filter((l) => l.id !== loanId)
+  );
+
+  const hasCashImpact =
+    Boolean(loan.disbursedAt) ||
+    loan.status === "En cours" ||
+    loan.status === "En retard";
+  if (hasCashImpact) {
+    await removeCashEntriesByReference({
+      periodId,
+      reference: loanId,
+      origin: CASH_ORIGIN_LOAN,
+    });
+  }
+
+  await audit("loan.delete", loanId);
+  revalidatePath("/gestion/prets");
+  revalidatePath("/gestion/caisse");
+  revalidatePath("/gestion");
   return;
 }
 

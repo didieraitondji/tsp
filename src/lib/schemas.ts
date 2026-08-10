@@ -137,6 +137,8 @@ export const loanInputSchema = z.object({
   memberId: z.string(),
   date: z.string(),
   amount: z.number().positive(),
+  /** Frais de retrait en FCFA (optionnel ; défaut = taux paramètres). */
+  withdrawalFee: z.number().min(0).optional(),
   dueDate: z.string(),
   witnessName: z.string().min(2, "Témoin requis"),
   witnessPhone: beninPhoneOptional,

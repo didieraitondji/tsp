@@ -36,6 +36,8 @@ export function CreateLoanModal({
       : tontines[0]?.id) || "";
   const [periodId, setPeriodId] = useState(initialPeriodId);
   const [amount, setAmount] = useState("");
+  const [withdrawalFee, setWithdrawalFee] = useState("");
+  const [feeTouched, setFeeTouched] = useState(false);
 
   const selected = useMemo(
     () => tontines.find((t) => t.id === periodId) ?? null,
@@ -44,16 +46,43 @@ export function CreateLoanModal({
   const members = selected?.members ?? [];
   const feeRate = selected?.withdrawalFeeRate ?? 0;
   const amountNum = Number(amount);
+  const defaultFee =
+    Number.isFinite(amountNum) && amountNum > 0
+      ? Math.round(amountNum * feeRate)
+      : null;
+
+  const feeNum = Number(String(withdrawalFee).replace(",", "."));
   const feePreview =
-    Number.isFinite(amountNum) && amountNum > 0 ? Math.round(amountNum * feeRate) : null;
+    withdrawalFee.trim() === ""
+      ? defaultFee
+      : Number.isFinite(feeNum) && feeNum >= 0
+        ? Math.round(feeNum)
+        : null;
+
+  function applyDefaultFee(nextAmount: string, nextPeriodId: string) {
+    if (feeTouched) return;
+    const t = tontines.find((x) => x.id === nextPeriodId);
+    const n = Number(nextAmount);
+    if (!t || !Number.isFinite(n) || n <= 0) {
+      setWithdrawalFee("");
+      return;
+    }
+    setWithdrawalFee(String(Math.round(n * t.withdrawalFeeRate)));
+  }
+
+  function resetForm() {
+    setPeriodId(initialPeriodId);
+    setAmount("");
+    setWithdrawalFee("");
+    setFeeTouched(false);
+  }
 
   return (
     <>
       <button
         type="button"
         onClick={() => {
-          setPeriodId(initialPeriodId);
-          setAmount("");
+          resetForm();
           setOpen(true);
         }}
         disabled={tontines.length === 0}
@@ -86,7 +115,11 @@ export function CreateLoanModal({
                 name="periodId"
                 required
                 value={periodId}
-                onChange={(e) => setPeriodId(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setPeriodId(next);
+                  applyDefaultFee(amount, next);
+                }}
               >
                 {tontines.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -133,14 +166,36 @@ export function CreateLoanModal({
                 min={1}
                 required
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setAmount(next);
+                  applyDefaultFee(next, periodId);
+                }}
+              />
+            </div>
+            <div>
+              <Label>Frais de retrait (FCFA) — optionnel</Label>
+              <Input
+                name="withdrawalFee"
+                type="number"
+                min={0}
+                step={1}
+                value={withdrawalFee}
+                placeholder={
+                  defaultFee != null ? String(defaultFee) : "0"
+                }
+                onChange={(e) => {
+                  setFeeTouched(true);
+                  setWithdrawalFee(e.target.value);
+                }}
               />
               <p className="mt-1.5 rounded-lg bg-[var(--cream)] px-2.5 py-1.5 text-[11px] text-[var(--muted)]">
-                Frais de retrait : {formatPercent(feeRate)}
-                {feePreview != null
-                  ? ` → ${formatFcfa(feePreview)} (sortie caisse ${formatFcfa(amountNum + feePreview)})`
-                  : " — saisissez un montant pour voir le détail"}
-                . Modifiable dans Paramètres → Règles.
+                Défaut paramètres : {formatPercent(feeRate)}
+                {defaultFee != null ? ` → ${formatFcfa(defaultFee)}` : ""}.
+                {feePreview != null && Number.isFinite(amountNum) && amountNum > 0
+                  ? ` Sortie caisse : ${formatFcfa(amountNum + feePreview)}.`
+                  : " Saisissez un montant pour voir le détail."}{" "}
+                Laissez vide pour 0, ou modifiez le montant.
               </p>
             </div>
             <div>

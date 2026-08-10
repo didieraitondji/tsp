@@ -52,14 +52,18 @@ export function memberDisplayName(m: Pick<Member, "lastName" | "firstName">): st
 
 export function computeLoanFigures(
   amount: number,
-  settings: Settings
+  settings: Settings,
+  withdrawalFeeOverride?: number | null
 ): {
   withdrawalFee: number;
   interestMonth1: number;
   interestMonth2: number;
   totalDue: number;
 } {
-  const withdrawalFee = Math.round(amount * settings.loanWithdrawalFeeRate);
+  const withdrawalFee =
+    withdrawalFeeOverride != null && Number.isFinite(withdrawalFeeOverride)
+      ? Math.max(0, Math.round(withdrawalFeeOverride))
+      : Math.round(amount * settings.loanWithdrawalFeeRate);
   const interestMonth1 = Math.round(amount * settings.interestRateMonthly);
   const interestMonth2 = Math.round(amount * settings.interestRateMonthly);
   const totalDue = amount + interestMonth1 + interestMonth2;
