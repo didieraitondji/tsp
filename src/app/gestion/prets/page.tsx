@@ -9,6 +9,7 @@ import { listPeriods } from "@/lib/db/periods";
 import { DEFAULT_SETTINGS } from "@/lib/db/defaults";
 import { readCollectionForPeriodId, readObjectForPeriodId } from "@/lib/db/store";
 import { formatDate, formatFcfa } from "@/lib/format";
+import { normalizeSearch } from "@/lib/search";
 import { canApproveLoans, canWriteGestion } from "@/lib/auth/permissions";
 import { requireGestionAccess } from "@/lib/auth/session";
 import type { Loan, LoanStatus, Repayment, User } from "@/lib/types";
@@ -79,7 +80,13 @@ function ApprovalProgress({
 export default async function PretsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tontine?: string; statut?: string }>;
+  searchParams: Promise<{
+    tontine?: string;
+    statut?: string;
+    q?: string;
+    du?: string;
+    au?: string;
+  }>;
 }) {
   const session = await requireGestionAccess();
   const canWrite = canWriteGestion(session.user.role);
@@ -90,6 +97,9 @@ export default async function PretsPage({
   const periodId = sp.tontine?.trim() || periods[0]?.id || "";
   const period = periods.find((p) => p.id === periodId) ?? null;
   const statusFilter = sp.statut?.trim() || "all";
+  const nameQuery = sp.q?.trim() || "";
+  const dateFrom = sp.du?.trim() || "";
+  const dateTo = sp.au?.trim() || "";
 
   const [members, users] = await Promise.all([
     period ? listEnrolledForPeriod(period.id) : Promise.resolve([]),
@@ -124,10 +134,26 @@ export default async function PretsPage({
     })
   );
 
-  const filtered =
-    statusFilter === "all" ? loans : loans.filter((l) => l.status === statusFilter);
+  const nameNeedle = nameQuery ? normalizeSearch(nameQuery) : "";
+  const filtered = loans.filter((l) => {
+    if (statusFilter !== "all" && l.status !== statusFilter) return false;
+    if (dateFrom && l.date < dateFrom) return false;
+    if (dateTo && l.date > dateTo) return false;
+    if (nameNeedle) {
+      const m = byId.get(l.memberId);
+      const label = m ? memberDisplayName(m) : l.memberId;
+      const hay = normalizeSearch([l.id, label].join(" "));
+      if (!hay.includes(nameNeedle)) return false;
+    }
+    return true;
+  });
 
   const sorted = [...filtered].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+  const hasListFilters =
+    statusFilter !== "all" ||
+    Boolean(nameQuery) ||
+    Boolean(dateFrom) ||
+    Boolean(dateTo);
 
   const pending = loans.filter((l) => l.status === "En attente");
   const enCours = loans.filter((l) => l.status === "En cours" || l.status === "En retard");
@@ -220,6 +246,7 @@ export default async function PretsPage({
                 <p className="text-sm font-semibold text-[var(--navy)]">{period.name}</p>
                 <p className="text-xs text-[var(--muted)]">
                   {sorted.length} prêt{sorted.length === 1 ? "" : "s"}
+                  {hasListFilters ? " (filtrés)" : ""}
                   {statusFilter !== "all" ? ` · ${statusFilter}` : ""}
                 </p>
               </div>
@@ -227,6 +254,9 @@ export default async function PretsPage({
                 periods={periods.map((p) => ({ id: p.id, name: p.name }))}
                 value={periodId}
                 status={statusFilter}
+                q={nameQuery}
+                du={dateFrom}
+                au={dateTo}
               />
             </div>
 
@@ -237,11 +267,13 @@ export default async function PretsPage({
                 </span>
                 <p className="mt-4 font-semibold text-[var(--navy)]">Aucun prêt</p>
                 <p className="mx-auto mt-1 max-w-sm text-sm text-[var(--muted)]">
-                  {loans.length === 0
-                    ? canWrite
-                      ? "Enregistrez le premier prêt via Nouveau prêt."
-                      : "Aucun prêt pour cette tontine."
-                    : "Aucun prêt ne correspond à ce filtre."}
+                  {hasListFilters
+                    ? "Aucun prêt ne correspond à ces filtres."
+                    : loans.length === 0
+                      ? canWrite
+                        ? "Enregistrez le premier prêt via Nouveau prêt."
+                        : "Aucun prêt pour cette tontine."
+                      : "Aucun prêt ne correspond à ce filtre."}
                 </p>
               </div>
             ) : (

@@ -9,6 +9,7 @@ import { DEFAULT_SETTINGS } from "@/lib/db/defaults";
 import { listPeriods } from "@/lib/db/periods";
 import { readCollectionForPeriodId, readObjectForPeriodId } from "@/lib/db/store";
 import { formatDate, formatFcfa } from "@/lib/format";
+import { normalizeSearch } from "@/lib/search";
 import { canWriteGestion } from "@/lib/auth/permissions";
 import { requireGestionAccess } from "@/lib/auth/session";
 import type { Penalty, Settings } from "@/lib/types";
@@ -58,12 +59,7 @@ export default async function PenalitesPage({
     })
   );
 
-  const normalize = (s: string) =>
-    s
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase();
-  const nameNeedle = nameQuery ? normalize(nameQuery) : "";
+  const nameNeedle = nameQuery ? normalizeSearch(nameQuery) : "";
 
   const filtered = penalties.filter((p) => {
     if (statusFilter === "paye" && !p.paid) return false;
@@ -72,7 +68,7 @@ export default async function PenalitesPage({
     if (nameNeedle) {
       const m = byId.get(p.memberId);
       const label = m ? memberDisplayName(m) : p.memberId;
-      if (!normalize(label).includes(nameNeedle)) return false;
+      if (!normalizeSearch(label).includes(nameNeedle)) return false;
     }
     return true;
   });

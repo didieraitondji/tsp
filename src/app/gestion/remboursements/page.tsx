@@ -6,6 +6,7 @@ import { loanRemaining, memberDisplayName } from "@/lib/db/domain";
 import { listPeriods } from "@/lib/db/periods";
 import { readCollectionForPeriodId } from "@/lib/db/store";
 import { formatDate, formatFcfa } from "@/lib/format";
+import { normalizeSearch } from "@/lib/search";
 import { canWriteGestion } from "@/lib/auth/permissions";
 import { requireGestionAccess } from "@/lib/auth/session";
 import type { Loan, Repayment } from "@/lib/types";
@@ -13,7 +14,7 @@ import type { Loan, Repayment } from "@/lib/types";
 export default async function RemboursementsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tontine?: string }>;
+  searchParams: Promise<{ tontine?: string; q?: string; du?: string; au?: string }>;
 }) {
   const session = await requireGestionAccess();
   const canWrite = canWriteGestion(session.user.role);
@@ -22,6 +23,9 @@ export default async function RemboursementsPage({
   const periods = await listPeriods();
   const periodId = sp.tontine?.trim() || periods[0]?.id || "";
   const period = periods.find((p) => p.id === periodId) ?? null;
+  const nameQuery = sp.q?.trim() || "";
+  const dateFrom = sp.du?.trim() || "";
+  const dateTo = sp.au?.trim() || "";
 
   const members = period ? await listEnrolledForPeriod(period.id) : [];
   const byMember = new Map(members.map((m) => [m.id, m]));
@@ -59,9 +63,26 @@ export default async function RemboursementsPage({
     })
   );
 
-  const sorted = [...repayments].sort(
+  const loanById = new Map(loans.map((l) => [l.id, l]));
+  const nameNeedle = nameQuery ? normalizeSearch(nameQuery) : "";
+
+  const filtered = repayments.filter((r) => {
+    if (dateFrom && r.date < dateFrom) return false;
+    if (dateTo && r.date > dateTo) return false;
+    if (nameNeedle) {
+      const loan = loanById.get(r.loanId);
+      const m = loan ? byMember.get(loan.memberId) : undefined;
+      const label = m ? memberDisplayName(m) : loan?.memberId ?? "";
+      const hay = normalizeSearch([r.loanId, label].filter(Boolean).join(" "));
+      if (!hay.includes(nameNeedle)) return false;
+    }
+    return true;
+  });
+
+  const sorted = [...filtered].sort(
     (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
   );
+  const hasListFilters = Boolean(nameQuery) || Boolean(dateFrom) || Boolean(dateTo);
   const totalRepaid = repayments.reduce((s, r) => s + r.amount, 0);
   const remainingOpen = openLoans.reduce((s, l) => s + loanRemaining(l), 0);
 
@@ -154,11 +175,15 @@ export default async function RemboursementsPage({
                 <p className="text-sm font-semibold text-[var(--navy)]">{period.name}</p>
                 <p className="text-xs text-[var(--muted)]">
                   {sorted.length} remboursement{sorted.length === 1 ? "" : "s"}
+                  {hasListFilters ? " (filtrés)" : ""}
                 </p>
               </div>
               <RemboursementsTontineFilter
                 periods={periods.map((p) => ({ id: p.id, name: p.name }))}
                 value={periodId}
+                q={nameQuery}
+                du={dateFrom}
+                au={dateTo}
               />
             </div>
 
@@ -169,9 +194,11 @@ export default async function RemboursementsPage({
                 </span>
                 <p className="mt-4 font-semibold text-[var(--navy)]">Aucun remboursement</p>
                 <p className="mx-auto mt-1 max-w-sm text-sm text-[var(--muted)]">
-                  {canWrite
-                    ? "Enregistrez le premier remboursement via le bouton ci-dessus."
-                    : "Aucun remboursement pour cette tontine."}
+                  {hasListFilters
+                    ? "Aucun remboursement ne correspond à ces filtres."
+                    : canWrite
+                      ? "Enregistrez le premier remboursement via le bouton ci-dessus."
+                      : "Aucun remboursement pour cette tontine."}
                 </p>
               </div>
             ) : (

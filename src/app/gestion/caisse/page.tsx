@@ -1,19 +1,43 @@
 import { ArrowDownLeft, ArrowUpRight, Wallet } from "lucide-react";
 import { CreateCashEntryModal } from "@/components/create-cash-entry-modal";
 import { CaisseTontineFilter } from "@/components/caisse-tontine-filter";
-import { reconcileContributionCashEntries, computeCashBalance, sortCashEntries } from "@/lib/db/domain";
+import { listEnrolledForPeriod } from "@/lib/db/collections";
+import {
+  CASH_ORIGIN_CONTRIBUTION,
+  CASH_ORIGIN_LOAN,
+  CASH_ORIGIN_PENALTY,
+  CASH_ORIGIN_REPAYMENT,
+  reconcileContributionCashEntries,
+  computeCashBalance,
+  memberDisplayName,
+  sortCashEntries,
+} from "@/lib/db/domain";
 import { DEFAULT_SETTINGS } from "@/lib/db/defaults";
 import { listPeriods } from "@/lib/db/periods";
 import { readCollectionForPeriodId, readObjectForPeriodId } from "@/lib/db/store";
 import { formatDate, formatFcfa } from "@/lib/format";
+import { normalizeSearch } from "@/lib/search";
 import { canWriteGestion } from "@/lib/auth/permissions";
 import { requireGestionAccess } from "@/lib/auth/session";
-import type { CashEntry, Settings } from "@/lib/types";
+import type {
+  CashEntry,
+  Contribution,
+  Loan,
+  Penalty,
+  Repayment,
+  Settings,
+} from "@/lib/types";
 
 export default async function CaissePage({
   searchParams,
 }: {
-  searchParams: Promise<{ tontine?: string; type?: string }>;
+  searchParams: Promise<{
+    tontine?: string;
+    type?: string;
+    q?: string;
+    du?: string;
+    au?: string;
+  }>;
 }) {
   const session = await requireGestionAccess();
   const canWrite = canWriteGestion(session.user.role);
@@ -23,6 +47,9 @@ export default async function CaissePage({
   const periodId = sp.tontine?.trim() || periods[0]?.id || "";
   const period = periods.find((p) => p.id === periodId) ?? null;
   const typeFilter = sp.type?.trim() || "all";
+  const nameQuery = sp.q?.trim() || "";
+  const dateFrom = sp.du?.trim() || "";
+  const dateTo = sp.au?.trim() || "";
 
   if (period) {
     await reconcileContributionCashEntries(period.id);
@@ -35,18 +62,66 @@ export default async function CaissePage({
     ? await readObjectForPeriodId<Settings>(period.id, "settings", DEFAULT_SETTINGS)
     : DEFAULT_SETTINGS;
 
+  const [members, contributions, loans, penalties, repayments] = period
+    ? await Promise.all([
+        listEnrolledForPeriod(period.id),
+        readCollectionForPeriodId<Contribution>(period.id, "contributions"),
+        readCollectionForPeriodId<Loan>(period.id, "loans"),
+        readCollectionForPeriodId<Penalty>(period.id, "penalties"),
+        readCollectionForPeriodId<Repayment>(period.id, "repayments"),
+      ])
+    : [[], [], [], [], []];
+
+  const memberById = new Map(members.map((m) => [m.id, m]));
+  const contributionById = new Map(contributions.map((c) => [c.id, c]));
+  const loanById = new Map(loans.map((l) => [l.id, l]));
+  const penaltyById = new Map(penalties.map((p) => [p.id, p]));
+  const repaymentById = new Map(repayments.map((r) => [r.id, r]));
+
+  function memberLabelForEntry(e: CashEntry): string {
+    if (!e.reference) return "";
+    let memberId: string | undefined;
+    if (e.origin === CASH_ORIGIN_CONTRIBUTION) {
+      memberId = contributionById.get(e.reference)?.memberId;
+    } else if (e.origin === CASH_ORIGIN_LOAN) {
+      memberId = loanById.get(e.reference)?.memberId;
+    } else if (e.origin === CASH_ORIGIN_PENALTY) {
+      memberId = penaltyById.get(e.reference)?.memberId;
+    } else if (e.origin === CASH_ORIGIN_REPAYMENT) {
+      const rem = repaymentById.get(e.reference);
+      memberId = rem ? loanById.get(rem.loanId)?.memberId : undefined;
+      // Anciennes écritures : référence = id prêt
+      if (!memberId) memberId = loanById.get(e.reference)?.memberId;
+    }
+    if (!memberId) return "";
+    const m = memberById.get(memberId);
+    return m ? memberDisplayName(m) : "";
+  }
+
   const entries = sortCashEntries(rawEntries);
   const balance = computeCashBalance(entries, settings.cashOpeningBalance);
 
   const totalIn = entries.reduce((s, e) => s + e.inflow, 0);
   const totalOut = entries.reduce((s, e) => s + e.outflow, 0);
 
-  const filtered =
-    typeFilter === "Entrée"
-      ? entries.filter((e) => e.type === "Entrée")
-      : typeFilter === "Sortie"
-        ? entries.filter((e) => e.type === "Sortie")
-        : entries;
+  const nameNeedle = nameQuery ? normalizeSearch(nameQuery) : "";
+
+  const filtered = entries.filter((e) => {
+    if (typeFilter === "Entrée" && e.type !== "Entrée") return false;
+    if (typeFilter === "Sortie" && e.type !== "Sortie") return false;
+    if (dateFrom && e.date < dateFrom) return false;
+    if (dateTo && e.date > dateTo) return false;
+    if (nameNeedle) {
+      const memberName = memberLabelForEntry(e);
+      const haystack = normalizeSearch(
+        [e.description, e.origin, e.reference, e.recordedBy, memberName]
+          .filter(Boolean)
+          .join(" ")
+      );
+      if (!haystack.includes(nameNeedle)) return false;
+    }
+    return true;
+  });
 
   const sorted = [...filtered].sort(
     (a, b) =>
@@ -54,6 +129,9 @@ export default async function CaissePage({
       b.createdAt.localeCompare(a.createdAt) ||
       b.id.localeCompare(a.id)
   );
+
+  const hasListFilters =
+    typeFilter !== "all" || Boolean(nameQuery) || Boolean(dateFrom) || Boolean(dateTo);
 
   const tontineOptions = periods.map((p) => ({ id: p.id, name: p.name }));
 
@@ -146,13 +224,23 @@ export default async function CaissePage({
                 <p className="text-sm font-semibold text-[var(--navy)]">{period.name}</p>
                 <p className="text-xs text-[var(--muted)]">
                   {sorted.length} écriture{sorted.length === 1 ? "" : "s"}
-                  {typeFilter !== "all" ? " (filtrées)" : ""}
+                  {hasListFilters ? " (filtrées)" : ""}
+                  {dateFrom || dateTo
+                    ? ` · ${dateFrom && dateTo && dateFrom === dateTo
+                        ? formatDate(dateFrom)
+                        : [dateFrom ? `du ${formatDate(dateFrom)}` : null, dateTo ? `au ${formatDate(dateTo)}` : null]
+                            .filter(Boolean)
+                            .join(" ")}`
+                    : ""}
                 </p>
               </div>
               <CaisseTontineFilter
                 periods={tontineOptions}
                 value={periodId}
                 type={typeFilter}
+                q={nameQuery}
+                du={dateFrom}
+                au={dateTo}
               />
             </div>
 
@@ -163,9 +251,11 @@ export default async function CaissePage({
                 </span>
                 <p className="mt-4 font-semibold text-[var(--navy)]">Aucune écriture</p>
                 <p className="mx-auto mt-1 max-w-sm text-sm text-[var(--muted)]">
-                  {canWrite
-                    ? "Les cotisations et prêts apparaissent ici automatiquement. Ajoutez une écriture manuelle si besoin."
-                    : "Aucune écriture pour cette sélection."}
+                  {hasListFilters
+                    ? "Aucune écriture ne correspond à ces filtres."
+                    : canWrite
+                      ? "Les cotisations et prêts apparaissent ici automatiquement. Ajoutez une écriture manuelle si besoin."
+                      : "Aucune écriture pour cette sélection."}
                 </p>
               </div>
             ) : (
@@ -182,42 +272,52 @@ export default async function CaissePage({
                     </tr>
                   </thead>
                   <tbody>
-                    {sorted.map((e) => (
-                      <tr
-                        key={e.id}
-                        className="border-b border-[var(--line)] last:border-0 transition hover:bg-[#FFF8EB]/50"
-                      >
-                        <td className="px-5 py-3.5 text-[var(--muted)]">
-                          {formatDate(e.date)}
-                        </td>
-                        <td className="px-3 py-3.5">
-                          {e.type === "Entrée" ? (
-                            <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-800 ring-1 ring-inset ring-emerald-200">
-                              Entrée
-                            </span>
-                          ) : (
-                            <span className="inline-flex rounded-full bg-red-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-800 ring-1 ring-inset ring-red-200">
-                              Sortie
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3.5">
-                          <p className="font-medium text-[var(--navy)]">{e.description}</p>
-                          <p className="text-[11px] text-[var(--muted)]">
-                            {[e.origin, e.reference].filter(Boolean).join(" · ")}
-                          </p>
-                        </td>
-                        <td className="px-3 py-3.5 tabular-nums text-emerald-800">
-                          {e.inflow ? formatFcfa(e.inflow) : "—"}
-                        </td>
-                        <td className="px-3 py-3.5 tabular-nums text-red-700">
-                          {e.outflow ? formatFcfa(e.outflow) : "—"}
-                        </td>
-                        <td className="px-5 py-3.5 tabular-nums font-medium text-[var(--navy)]">
-                          {formatFcfa(e.balance)}
-                        </td>
-                      </tr>
-                    ))}
+                    {sorted.map((e) => {
+                      const memberName = memberLabelForEntry(e);
+                      return (
+                        <tr
+                          key={e.id}
+                          className="border-b border-[var(--line)] last:border-0 transition hover:bg-[#FFF8EB]/50"
+                        >
+                          <td className="px-5 py-3.5 text-[var(--muted)]">
+                            {formatDate(e.date)}
+                          </td>
+                          <td className="px-3 py-3.5">
+                            {e.type === "Entrée" ? (
+                              <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-800 ring-1 ring-inset ring-emerald-200">
+                                Entrée
+                              </span>
+                            ) : (
+                              <span className="inline-flex rounded-full bg-red-50 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-800 ring-1 ring-inset ring-red-200">
+                                Sortie
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3.5">
+                            <p className="font-medium text-[var(--navy)]">
+                              {memberName || e.description}
+                            </p>
+                            <p className="text-[11px] text-[var(--muted)]">
+                              {(memberName
+                                ? [e.description, e.origin, e.reference]
+                                : [e.origin, e.reference]
+                              )
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          </td>
+                          <td className="px-3 py-3.5 tabular-nums text-emerald-800">
+                            {e.inflow ? formatFcfa(e.inflow) : "—"}
+                          </td>
+                          <td className="px-3 py-3.5 tabular-nums text-red-700">
+                            {e.outflow ? formatFcfa(e.outflow) : "—"}
+                          </td>
+                          <td className="px-5 py-3.5 tabular-nums font-medium text-[var(--navy)]">
+                            {formatFcfa(e.balance)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -14,11 +14,17 @@ import { CreateTontineModal } from "@/components/create-tontine-modal";
 import { EditWeeklyTargetButton } from "@/components/edit-weekly-target-button";
 import { EnrollMemberModal } from "@/components/enroll-member-modal";
 import { InscritsTontineFilter } from "@/components/inscrits-tontine-filter";
+import { MembresDirectoryFilter } from "@/components/membres-directory-filter";
 import { MemberRowActions } from "@/components/member-row-actions";
 import { formatMemberShortName } from "@/components/contributions-table-ui";
 import { canWriteGestion } from "@/lib/auth/permissions";
 import { requireGestionAccess } from "@/lib/auth/session";
+import { normalizeSearch } from "@/lib/search";
 import type { Enrollment, Member, MemberStatus } from "@/lib/types";
+
+function dateKey(iso: string): string {
+  return (iso || "").slice(0, 10);
+}
 
 function initials(lastName: string, firstName: string): string {
   const a = (lastName || "").trim()[0] || "";
@@ -47,11 +53,13 @@ function DirectoryTable({
   enrolledAnywhereIds,
   memberIdsWithAccount,
   canWrite,
+  filteredEmpty,
 }: {
   members: Member[];
   enrolledAnywhereIds: Set<string>;
   memberIdsWithAccount: Set<string>;
   canWrite: boolean;
+  filteredEmpty?: boolean;
 }) {
   if (members.length === 0) {
     return (
@@ -59,9 +67,13 @@ function DirectoryTable({
         <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--cream)] text-[var(--sand)]">
           <UserRound className="h-5 w-5" strokeWidth={1.75} />
         </span>
-        <p className="mt-4 font-semibold text-[var(--navy)]">Annuaire vide</p>
+        <p className="mt-4 font-semibold text-[var(--navy)]">
+          {filteredEmpty ? "Aucun résultat" : "Annuaire vide"}
+        </p>
         <p className="mx-auto mt-1 max-w-sm text-sm text-[var(--muted)]">
-          Créez le premier membre via le bouton Nouveau membre.
+          {filteredEmpty
+            ? "Aucun membre ne correspond à ces filtres."
+            : "Créez le premier membre via le bouton Nouveau membre."}
         </p>
       </div>
     );
@@ -130,7 +142,15 @@ function DirectoryTable({
 export default async function MembresPage({
   searchParams,
 }: {
-  searchParams: Promise<{ view?: string; tontine?: string }>;
+  searchParams: Promise<{
+    view?: string;
+    tontine?: string;
+    q?: string;
+    du?: string;
+    au?: string;
+    statut?: string;
+    inscrit?: string;
+  }>;
 }) {
   const session = await requireGestionAccess();
   const canWrite = canWriteGestion(session.user.role);
@@ -151,8 +171,13 @@ export default async function MembresPage({
     sp.tontine?.trim() ||
     (view === "inscrits" ? periods[0]?.id ?? "" : "");
   const filterPeriod = periods.find((p) => p.id === filterTontineId) ?? null;
+  const nameQuery = sp.q?.trim() || "";
+  const dateFrom = sp.du?.trim() || "";
+  const dateTo = sp.au?.trim() || "";
+  const statusFilter = sp.statut?.trim() || "all";
+  const inscritFilter = sp.inscrit?.trim() || "";
 
-  const enrolled =
+  const enrolledRaw =
     view === "inscrits" && filterTontineId
       ? await listEnrolledForPeriod(filterTontineId)
       : [];
@@ -179,9 +204,52 @@ export default async function MembresPage({
     })
   );
 
+  const nameNeedle = nameQuery ? normalizeSearch(nameQuery) : "";
+
+  const directoryFiltered = allMembers.filter((m) => {
+    if (inscritFilter === "oui" && !enrolledAnywhereIds.has(m.id)) return false;
+    if (inscritFilter === "non" && enrolledAnywhereIds.has(m.id)) return false;
+    const joined = dateKey(m.joinedAt);
+    if (dateFrom && (!joined || joined < dateFrom)) return false;
+    if (dateTo && (!joined || joined > dateTo)) return false;
+    if (nameNeedle) {
+      const hay = normalizeSearch(
+        [m.lastName, m.firstName, m.phone, m.id].filter(Boolean).join(" ")
+      );
+      if (!hay.includes(nameNeedle)) return false;
+    }
+    return true;
+  });
+
+  const enrolled = enrolledRaw.filter((m) => {
+    if (statusFilter !== "all" && m.status !== statusFilter) return false;
+    const joined = dateKey(m.joinedAt);
+    if (dateFrom && (!joined || joined < dateFrom)) return false;
+    if (dateTo && (!joined || joined > dateTo)) return false;
+    if (nameNeedle) {
+      const hay = normalizeSearch(
+        [m.lastName, m.firstName, m.phone, m.id].filter(Boolean).join(" ")
+      );
+      if (!hay.includes(nameNeedle)) return false;
+    }
+    return true;
+  });
+
+  const hasDirectoryFilters =
+    Boolean(nameQuery) ||
+    Boolean(dateFrom) ||
+    Boolean(dateTo) ||
+    inscritFilter === "oui" ||
+    inscritFilter === "non";
+  const hasInscritsFilters =
+    Boolean(nameQuery) ||
+    Boolean(dateFrom) ||
+    Boolean(dateTo) ||
+    statusFilter !== "all";
+
   const canEnroll = enrollTontines.length > 0 && allMembers.length > 0;
   const filterEnrollmentsOpen = Boolean(filterPeriod && filterPeriod.enrollmentsOpen !== false);
-  const actifs = enrolled.filter((m) => m.status === "Actif").length;
+  const actifs = enrolledRaw.filter((m) => m.status === "Actif").length;
 
   return (
     <div className="-mx-4 px-4 md:-mx-8 md:px-[100px]">
@@ -291,18 +359,36 @@ export default async function MembresPage({
                 Inscrits
               </Link>
             </div>
-            {view === "inscrits" && periods.length > 0 && (
-              <InscritsTontineFilter
-                periods={periods.map((p) => ({ id: p.id, name: p.name }))}
-                value={filterTontineId}
-              />
-            )}
           </div>
           <span className="text-xs font-medium text-[var(--muted)]">
             {view === "inscrits"
-              ? `${enrolled.length} inscrit${enrolled.length === 1 ? "" : "s"}`
-              : `${allMembers.length} membre${allMembers.length === 1 ? "" : "s"}`}
+              ? `${enrolled.length} inscrit${enrolled.length === 1 ? "" : "s"}${
+                  hasInscritsFilters ? " (filtrés)" : ""
+                }`
+              : `${directoryFiltered.length} membre${directoryFiltered.length === 1 ? "" : "s"}${
+                  hasDirectoryFilters ? " (filtrés)" : ""
+                }`}
           </span>
+        </div>
+
+        <div className="border-b border-[var(--line)] px-5 py-3">
+          {view === "inscrits" && periods.length > 0 ? (
+            <InscritsTontineFilter
+              periods={periods.map((p) => ({ id: p.id, name: p.name }))}
+              value={filterTontineId}
+              q={nameQuery}
+              statut={statusFilter}
+              du={dateFrom}
+              au={dateTo}
+            />
+          ) : view === "annuaire" ? (
+            <MembresDirectoryFilter
+              q={nameQuery}
+              du={dateFrom}
+              au={dateTo}
+              inscrit={inscritFilter}
+            />
+          ) : null}
         </div>
 
         {view === "inscrits" ? (
@@ -313,7 +399,7 @@ export default async function MembresPage({
                 Créez une tontine pour y inscrire des membres.
               </p>
             </div>
-          ) : enrolled.length === 0 ? (
+          ) : enrolledRaw.length === 0 ? (
             <div className="px-6 py-14 text-center">
               <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--cream)] text-[var(--sand)]">
                 <Users className="h-5 w-5" strokeWidth={1.75} />
@@ -323,6 +409,16 @@ export default async function MembresPage({
                 {filterEnrollmentsOpen
                   ? `Personne n’est encore inscrit${filterPeriod ? ` à « ${filterPeriod.name} »` : ""}.`
                   : "Les inscriptions sont clôturées pour cette tontine."}
+              </p>
+            </div>
+          ) : enrolled.length === 0 ? (
+            <div className="px-6 py-14 text-center">
+              <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--cream)] text-[var(--sand)]">
+                <Users className="h-5 w-5" strokeWidth={1.75} />
+              </span>
+              <p className="mt-4 font-semibold text-[var(--navy)]">Aucun résultat</p>
+              <p className="mx-auto mt-1 max-w-sm text-sm text-[var(--muted)]">
+                Aucun inscrit ne correspond à ces filtres.
               </p>
             </div>
           ) : (
@@ -396,10 +492,11 @@ export default async function MembresPage({
           )
         ) : (
           <DirectoryTable
-            members={allMembers}
+            members={directoryFiltered}
             enrolledAnywhereIds={enrolledAnywhereIds}
             memberIdsWithAccount={memberIdsWithAccount}
             canWrite={canWrite}
+            filteredEmpty={hasDirectoryFilters && directoryFiltered.length === 0}
           />
         )}
       </section>

@@ -4,22 +4,16 @@ import { useEffect, useState } from "react";
 import { Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 
-type TontineOption = { id: string; name: string };
-
-export function CaisseTontineFilter({
-  periods,
-  value,
-  type,
+export function MembresDirectoryFilter({
   q = "",
   du = "",
   au = "",
+  inscrit = "",
 }: {
-  periods: TontineOption[];
-  value: string;
-  type: string;
   q?: string;
   du?: string;
   au?: string;
+  inscrit?: string;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState(q);
@@ -29,24 +23,24 @@ export function CaisseTontineFilter({
   }, [q]);
 
   const push = (next: {
-    tontine?: string;
-    type?: string;
     q?: string;
     du?: string;
     au?: string;
+    inscrit?: string;
   }) => {
     const params = new URLSearchParams();
-    const tontine = next.tontine ?? value;
-    const nextType = next.type ?? type;
+    params.set("view", "annuaire");
     const nextQ = (next.q ?? query).trim();
     const nextDu = next.du ?? du;
     const nextAu = next.au ?? au;
-    if (tontine) params.set("tontine", tontine);
-    if (nextType && nextType !== "all") params.set("type", nextType);
+    const nextInscrit = next.inscrit ?? inscrit;
     if (nextQ) params.set("q", nextQ);
     if (nextDu) params.set("du", nextDu);
     if (nextAu) params.set("au", nextAu);
-    router.push(`/gestion/caisse?${params.toString()}`);
+    if (nextInscrit === "oui" || nextInscrit === "non") {
+      params.set("inscrit", nextInscrit);
+    }
+    router.push(`/gestion/membres?${params.toString()}`);
   };
 
   useEffect(() => {
@@ -59,7 +53,9 @@ export function CaisseTontineFilter({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce on query only
   }, [query]);
 
-  const hasExtraFilters = Boolean(query.trim() || du || au);
+  const hasExtraFilters = Boolean(
+    query.trim() || du || au || inscrit === "oui" || inscrit === "non"
+  );
 
   return (
     <div className="flex flex-wrap items-center gap-2.5">
@@ -73,7 +69,7 @@ export function CaisseTontineFilter({
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Nom, description…"
+          placeholder="Nom, téléphone, id…"
           className="w-full rounded-lg border border-[var(--line)] bg-white py-1.5 pl-8 pr-8 text-sm text-[var(--navy)] outline-none ring-[var(--brand)] placeholder:text-[var(--muted)] focus:ring-2"
         />
         {query ? (
@@ -113,30 +109,19 @@ export function CaisseTontineFilter({
       </label>
 
       <label className="flex items-center gap-2 text-sm">
-        <span className="whitespace-nowrap text-[var(--muted)]">Tontine</span>
+        <span className="whitespace-nowrap text-[var(--muted)]">Inscription</span>
         <select
-          value={value}
-          onChange={(e) => push({ tontine: e.target.value })}
-          className="cursor-pointer rounded-lg border border-[var(--line)] bg-white px-2.5 py-1.5 text-sm text-[var(--navy)] outline-none ring-[var(--brand)] focus:ring-2"
-        >
-          {periods.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="flex items-center gap-2 text-sm">
-        <span className="whitespace-nowrap text-[var(--muted)]">Type</span>
-        <select
-          value={type || "all"}
-          onChange={(e) => push({ type: e.target.value })}
+          value={inscrit || "all"}
+          onChange={(e) =>
+            push({
+              inscrit: e.target.value === "all" ? "" : e.target.value,
+            })
+          }
           className="cursor-pointer rounded-lg border border-[var(--line)] bg-white px-2.5 py-1.5 text-sm text-[var(--navy)] outline-none ring-[var(--brand)] focus:ring-2"
         >
           <option value="all">Tous</option>
-          <option value="Entrée">Entrées</option>
-          <option value="Sortie">Sorties</option>
+          <option value="oui">Inscrits</option>
+          <option value="non">Non inscrits</option>
         </select>
       </label>
 
@@ -145,7 +130,7 @@ export function CaisseTontineFilter({
           type="button"
           onClick={() => {
             setQuery("");
-            push({ q: "", du: "", au: "" });
+            push({ q: "", du: "", au: "", inscrit: "" });
           }}
           className="rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--muted)] transition hover:bg-[var(--cream)] hover:text-[var(--navy)]"
         >
