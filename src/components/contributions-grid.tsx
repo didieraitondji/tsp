@@ -53,6 +53,7 @@ export function ContributionsGrid({
   periodId,
   periodicity,
   members,
+  visibleMemberIds = null,
   weeks,
   contributions,
   penaltyAmount,
@@ -64,6 +65,8 @@ export function ContributionsGrid({
   periodId: string;
   periodicity?: Periodicity | null;
   members: EnrolledMember[];
+  /** Si défini, n’affiche que ces lignes (totaux colonnes restent sur tous les actifs). */
+  visibleMemberIds?: Set<string> | null;
   weeks: Week[];
   contributions: Contribution[];
   penaltyAmount: number;
@@ -134,6 +137,14 @@ export function ContributionsGrid({
     [members]
   );
 
+  const rowMembers = useMemo(
+    () =>
+      visibleMemberIds
+        ? sortedMembers.filter((m) => visibleMemberIds.has(m.id))
+        : sortedMembers,
+    [sortedMembers, visibleMemberIds]
+  );
+
   // Aligne « Prochaine » une seule fois par tontine (pas à chaque marquage).
   useEffect(() => {
     if (!nextId) return;
@@ -189,6 +200,14 @@ export function ContributionsGrid({
     );
   }
 
+  if (rowMembers.length === 0) {
+    return (
+      <p className="px-5 py-10 text-center text-sm text-[var(--muted)]">
+        Aucun membre ne correspond à la recherche.
+      </p>
+    );
+  }
+
   function weekColTone(w: Week, weekIndex: number): string {
     if (w.id === nextId) return BG.next;
     if (hoveredWeekId === w.id) return BG.hover;
@@ -240,7 +259,7 @@ export function ContributionsGrid({
               const isNext = w.id === nextId;
               let paid = 0;
               let unpaid = 0;
-              for (const m of sortedMembers) {
+              for (const m of rowMembers) {
                 const st = resolveLockedContributionStatus(map.get(`${m.id}:${w.id}`));
                 if (st === "paid") paid += 1;
                 else if (st === "unpaid") unpaid += 1;
@@ -267,7 +286,7 @@ export function ContributionsGrid({
                     <WeekColumnStats
                       paid={paid}
                       unpaid={unpaid}
-                      total={sortedMembers.length}
+                      total={rowMembers.length}
                     />
                   )}
                 </th>
@@ -276,7 +295,7 @@ export function ContributionsGrid({
           </tr>
         </thead>
         <tbody>
-          {sortedMembers.map((m) => (
+          {rowMembers.map((m) => (
             <tr key={m.id} className="group">
               <td
                 className={`sticky left-0 z-20 border-b border-r border-[var(--line)] ${BG.panel} px-3 py-2 group-hover:bg-[#FFF8EB] ${STICKY_EDGE}`}
@@ -374,7 +393,7 @@ export function ContributionsGrid({
               style={{ left: `${STICKY_LEFT_TARGET}rem`, minWidth: `${TARGET_COL_W}rem` }}
             />
             {ordered.map((w, weekIndex) => {
-              const lines = sortedMembers.map((m) => ({
+              const lines = rowMembers.map((m) => ({
                 lastName: m.lastName,
                 firstName: m.firstName,
                 amount: contributionCountedAmount(map.get(`${m.id}:${w.id}`)),

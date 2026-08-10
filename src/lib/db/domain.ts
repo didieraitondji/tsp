@@ -823,6 +823,11 @@ export async function applyLatePenaltiesForWeek(input: {
   return toAdd.length;
 }
 
+export type MemberContributionView = Contribution & {
+  /** Date de la séance (échéance), pas la date de marquage. */
+  weekDate: string;
+};
+
 export type MemberProgress = {
   member: EnrolledMember;
   periodId: string | null;
@@ -836,7 +841,9 @@ export type MemberProgress = {
   penaltiesDue: number;
   loansOutstanding: number;
   netBalance: number;
-  contributions: Contribution[];
+  contributions: MemberContributionView[];
+  /** Séances de la tontine (pour la grille membre). */
+  weeks: Week[];
   loans: Loan[];
   repayments: Repayment[];
   penalties: Penalty[];
@@ -919,6 +926,7 @@ export async function getMemberProgress(
       loansOutstanding: 0,
       netBalance: 0,
       contributions: [],
+      weeks: [],
       loans: [],
       repayments: [],
       penalties: [],
@@ -941,6 +949,11 @@ export async function getMemberProgress(
   const weeklyTarget = enrollment?.weeklyTarget ?? 0;
 
   const memberContributions = contributions.filter((c) => c.memberId === memberId);
+  const weekDateById = new Map(weeks.map((w) => [w.id, w.date]));
+  const contributionViews: MemberContributionView[] = memberContributions.map((c) => ({
+    ...c,
+    weekDate: weekDateById.get(c.weekId) || c.paidAt.slice(0, 10) || c.paidAt,
+  }));
   const paidWeekIds = new Set(memberContributions.map((c) => c.weekId));
   const missingWeeks = weeks
     .filter((w) => !paidWeekIds.has(w.id))
@@ -974,7 +987,8 @@ export async function getMemberProgress(
     penaltiesDue,
     loansOutstanding,
     netBalance: totalContributed - penaltiesDue - loansOutstanding,
-    contributions: memberContributions,
+    contributions: contributionViews,
+    weeks,
     loans: memberLoans,
     repayments: repayments.filter((r) => loanIds.has(r.loanId)),
     penalties: penalties.filter((p) => p.memberId === memberId),

@@ -1,7 +1,8 @@
-import { formatDate, formatFcfa } from "@/lib/format";
+import { formatFcfa } from "@/lib/format";
+import { contributionCountedAmount } from "@/lib/contribution-status";
 import { loadMembreContext } from "@/lib/membre-page";
+import { MembreCotisationsGrid } from "@/components/membre-cotisations-grid";
 import { MembreAlert, MembreEmpty, MembrePanel } from "@/components/membre-ui";
-import { Table, Td, Th } from "@/components/ui";
 
 export default async function MembreCotisationsPage({
   searchParams,
@@ -20,7 +21,9 @@ export default async function MembreCotisationsPage({
   }
 
   const { progress } = ctx;
-  const sorted = [...progress.contributions].sort((a, b) => b.paidAt.localeCompare(a.paidAt));
+  const paidCount = progress.contributions.filter(
+    (c) => contributionCountedAmount(c) > 0
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -33,7 +36,7 @@ export default async function MembreCotisationsPage({
         </h1>
         <p className="mt-2 text-[var(--muted)]">
           {progress.periodName
-            ? `Historique pour « ${progress.periodName} ».`
+            ? `Séances de « ${progress.periodName} » · cible ${formatFcfa(progress.weeklyTarget)}.`
             : "Sélectionnez une tontine pour voir vos cotisations."}
         </p>
       </div>
@@ -44,38 +47,17 @@ export default async function MembreCotisationsPage({
         </MembreAlert>
       ) : (
         <MembrePanel
-          title="Historique"
-          description={`${sorted.length} versement${sorted.length === 1 ? "" : "s"} · ${progress.weeksPaid}/${progress.weeksTotal} séances`}
+          title="Séances"
+          description={`${paidCount} payée${paidCount === 1 ? "" : "s"} · ${progress.weeksTotal} séance${progress.weeksTotal === 1 ? "" : "s"}`}
         >
-          {sorted.length === 0 ? (
-            <MembreEmpty>Aucune cotisation enregistrée pour le moment.</MembreEmpty>
+          {progress.weeks.length === 0 ? (
+            <MembreEmpty>Aucune séance planifiée pour le moment.</MembreEmpty>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <thead>
-                  <tr>
-                    <Th>Date</Th>
-                    <Th>Montant</Th>
-                    <Th>Statut</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map((c) => (
-                    <tr key={c.id}>
-                      <Td>{formatDate(c.paidAt)}</Td>
-                      <Td className="font-semibold">{formatFcfa(c.amount)}</Td>
-                      <Td>{c.locked ? "Validé" : "Brouillon"}</Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </div>
-          )}
-          {progress.missingWeeks.length > 0 && (
-            <p className="mt-4 text-sm text-[var(--muted)]">
-              Séances sans saisie : {progress.missingWeeks.slice(0, 10).join(", ")}
-              {progress.missingWeeks.length > 10 ? "…" : ""}
-            </p>
+            <MembreCotisationsGrid
+              weeks={progress.weeks}
+              contributions={progress.contributions}
+              weeklyTarget={progress.weeklyTarget}
+            />
           )}
         </MembrePanel>
       )}

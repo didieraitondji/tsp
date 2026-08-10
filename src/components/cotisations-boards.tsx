@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, CalendarRange } from "lucide-react";
+import { CalendarDays, CalendarRange, Search, X } from "lucide-react";
 import { ContributionsGrid } from "@/components/contributions-grid";
 import { ContributionsMonthlyGrid } from "@/components/contributions-monthly-grid";
+import { normalizeSearch } from "@/lib/search";
 import type { Contribution, EnrolledMember, Periodicity, Week } from "@/lib/types";
 
 export type CotisationsTab = "seances" | "mois";
@@ -36,12 +37,14 @@ export function CotisationsBoards({
   const [tab, setTab] = useState<CotisationsTab>(initialTab);
   const [contributions, setContributions] = useState(initialContributions);
   const [members, setMembers] = useState(initialMembers);
+  const [memberQuery, setMemberQuery] = useState("");
 
   // Ne pas réécraser les totaux / verrous locaux à chaque refresh RSC.
   useEffect(() => {
     setContributions(initialContributions);
     setMembers(initialMembers);
     setTab(initialTab);
+    setMemberQuery("");
   }, [periodId]); // eslint-disable-line react-hooks/exhaustive-deps -- reset only when tontine changes
 
   useEffect(() => {
@@ -49,6 +52,23 @@ export function CotisationsBoards({
   }, [initialTab]);
 
   const actifs = members.filter((m) => m.status === "Actif").length;
+  const memberNeedle = memberQuery.trim() ? normalizeSearch(memberQuery) : "";
+
+  const visibleMembers = useMemo(() => {
+    if (!memberNeedle) return members;
+    return members.filter((m) => {
+      const hay = normalizeSearch(
+        [m.lastName, m.firstName, m.phone, m.id].filter(Boolean).join(" ")
+      );
+      return hay.includes(memberNeedle);
+    });
+  }, [members, memberNeedle]);
+
+  const visibleActifsCount = visibleMembers.filter((m) => m.status === "Actif").length;
+  const visibleMemberIds = useMemo(
+    () => (memberNeedle ? new Set(visibleMembers.map((m) => m.id)) : null),
+    [memberNeedle, visibleMembers]
+  );
 
   const selectTab = (next: CotisationsTab) => {
     setTab(next);
@@ -98,14 +118,43 @@ export function CotisationsBoards({
             {periodName}
             <span className="ml-2 text-xs font-normal text-[var(--muted)]">
               {weeks.length} séance{weeks.length === 1 ? "" : "s"} · {actifs} actifs
+              {memberNeedle
+                ? ` · ${visibleActifsCount} affiché${visibleActifsCount === 1 ? "" : "s"}`
+                : ""}
             </span>
           </p>
         </div>
-        {tab === "mois" && (
-          <p className="text-xs text-[var(--muted)]">
-            Somme des cotisations payées, mois par mois
-          </p>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="relative block min-w-[12rem] sm:w-[16rem]">
+            <span className="sr-only">Rechercher un membre</span>
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted)]"
+              strokeWidth={1.75}
+            />
+            <input
+              type="search"
+              value={memberQuery}
+              onChange={(e) => setMemberQuery(e.target.value)}
+              placeholder="Rechercher un membre…"
+              className="w-full rounded-lg border border-[var(--line)] bg-white py-1.5 pl-8 pr-8 text-sm text-[var(--navy)] outline-none ring-[var(--brand)] placeholder:text-[var(--muted)] focus:ring-2"
+            />
+            {memberQuery ? (
+              <button
+                type="button"
+                onClick={() => setMemberQuery("")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-[var(--muted)] transition hover:bg-[var(--cream)] hover:text-[var(--navy)]"
+                aria-label="Effacer la recherche"
+              >
+                <X className="h-3.5 w-3.5" strokeWidth={2} />
+              </button>
+            ) : null}
+          </label>
+          {tab === "mois" && (
+            <p className="text-xs text-[var(--muted)]">
+              Somme des cotisations payées, mois par mois
+            </p>
+          )}
+        </div>
       </div>
 
       {tab === "seances" ? (
@@ -114,6 +163,7 @@ export function CotisationsBoards({
           periodId={periodId}
           periodicity={periodicity}
           members={members}
+          visibleMemberIds={visibleMemberIds}
           weeks={weeks}
           contributions={contributions}
           penaltyAmount={penaltyAmount}
@@ -126,6 +176,7 @@ export function CotisationsBoards({
         <ContributionsMonthlyGrid
           key={`mois-${periodId}`}
           members={members}
+          visibleMemberIds={visibleMemberIds}
           weeks={weeks}
           contributions={contributions}
         />

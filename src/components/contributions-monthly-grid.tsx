@@ -27,10 +27,12 @@ function currentMonthKey(todayIso: string): string {
 
 export function ContributionsMonthlyGrid({
   members,
+  visibleMemberIds = null,
   weeks,
   contributions,
 }: {
   members: EnrolledMember[];
+  visibleMemberIds?: Set<string> | null;
   weeks: Week[];
   contributions: Contribution[];
 }) {
@@ -52,7 +54,15 @@ export function ContributionsMonthlyGrid({
     [members]
   );
 
-  const { months, amounts, monthTotals } = useMemo(
+  const rowMembers = useMemo(
+    () =>
+      visibleMemberIds
+        ? sortedMembers.filter((m) => visibleMemberIds.has(m.id))
+        : sortedMembers,
+    [sortedMembers, visibleMemberIds]
+  );
+
+  const { months, amounts } = useMemo(
     () =>
       buildMonthlyTotals(
         weeks,
@@ -86,6 +96,14 @@ export function ContributionsMonthlyGrid({
 
   if (weeks.length === 0 || sortedMembers.length === 0 || months.length === 0) {
     return null;
+  }
+
+  if (rowMembers.length === 0) {
+    return (
+      <p className="px-5 py-10 text-center text-sm text-[var(--muted)]">
+        Aucun membre ne correspond à la recherche.
+      </p>
+    );
   }
 
   function colTone(monthKey: string, index: number): string {
@@ -151,7 +169,7 @@ export function ContributionsMonthlyGrid({
           </tr>
         </thead>
         <tbody>
-          {sortedMembers.map((m) => {
+          {rowMembers.map((m) => {
             const row = amounts.get(m.id);
             const memberTotal = months.reduce(
               (s, mo) => s + (row?.get(mo.key) ?? 0),
@@ -212,7 +230,10 @@ export function ContributionsMonthlyGrid({
               Total mois
             </td>
             {months.map((mo, i) => {
-              const total = monthTotals.get(mo.key) ?? 0;
+              const total = rowMembers.reduce(
+                (s, m) => s + (amounts.get(m.id)?.get(mo.key) ?? 0),
+                0
+              );
               return (
                 <td
                   key={mo.key}
@@ -231,7 +252,13 @@ export function ContributionsMonthlyGrid({
             >
               <span className="inline-flex rounded-full border border-[#FFCD79] bg-[#FFF8EB] px-2.5 py-1 text-[11px] font-bold tabular-nums text-[var(--navy)]">
                 {formatFcfa(
-                  months.reduce((s, mo) => s + (monthTotals.get(mo.key) ?? 0), 0)
+                  rowMembers.reduce((s, m) => {
+                    const row = amounts.get(m.id);
+                    return (
+                      s +
+                      months.reduce((ms, mo) => ms + (row?.get(mo.key) ?? 0), 0)
+                    );
+                  }, 0)
                 ).replace(" FCFA", "")}
               </span>
             </td>
