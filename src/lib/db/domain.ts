@@ -29,8 +29,10 @@ import {
 } from "./collections";
 import { DEFAULT_SETTINGS } from "./defaults";
 import {
+  contributionCountedAmount,
   isContributionRecordLocked,
 } from "@/lib/contribution-status";
+import { orderWeeksForGrid, todayIsoLocal } from "@/lib/cotisations-report";
 import { listPeriods } from "./periods";
 import {
   readCollectionForPeriodId,
@@ -101,6 +103,30 @@ export async function getMemberBalance(memberId: string) {
   };
 }
 
+export type DashboardActionLoan = {
+  id: string;
+  memberName: string;
+  amount: number;
+  remaining: number;
+  status: Loan["status"];
+};
+
+export type DashboardCashPreview = {
+  id: string;
+  date: string;
+  type: CashEntry["type"];
+  description: string;
+  amount: number;
+  memberName: string;
+};
+
+export type DashboardRankingRow = {
+  memberId: string;
+  memberName: string;
+  total: number;
+  loansOutstanding: number;
+};
+
 export async function getDashboardStats(periodId?: string) {
   const empty = {
     cashBalance: 0,
@@ -110,7 +136,16 @@ export async function getDashboardStats(periodId?: string) {
     activeMembers: 0,
     interestRate: DEFAULT_SETTINGS.interestRateMonthly,
     unpaidPenalties: 0,
+    unpaidPenaltiesCount: 0,
     loansDue: 0,
+    pendingLoansCount: 0,
+    lateLoansCount: 0,
+    nextWeek: null as { id: string; date: string } | null,
+    sessionPaidCount: 0,
+    sessionActiveCount: 0,
+    actionLoans: [] as DashboardActionLoan[],
+    recentCash: [] as DashboardCashPreview[],
+    ranking: [] as DashboardRankingRow[],
   };
 
   let resolvedPeriodId = periodId?.trim() || "";
@@ -123,14 +158,54 @@ export async function getDashboardStats(periodId?: string) {
   // Rattrapage des cotisations déjà saisies sans écriture caisse
   await reconcileContributionCashEntries(resolvedPeriodId);
 
-  const [settings, members, contributions, loans, penalties, cashbook] = await Promise.all([
+  const [
+    settings,
+    members,
+    contributions,
+    loans,
+    penalties,
+    cashbook,
+    weeks,
+    repayments,
+  ] = await Promise.all([
     readObjectForPeriodId(resolvedPeriodId, "settings", DEFAULT_SETTINGS),
     listEnrolledForPeriod(resolvedPeriodId),
     readCollectionForPeriodId<Contribution>(resolvedPeriodId, "contributions"),
     readCollectionForPeriodId<Loan>(resolvedPeriodId, "loans"),
     readCollectionForPeriodId<Penalty>(resolvedPeriodId, "penalties"),
     readCollectionForPeriodId<CashEntry>(resolvedPeriodId, "cashbook"),
+    readCollectionForPeriodId<Week>(resolvedPeriodId, "weeks"),
+    readCollectionForPeriodId<Repayment>(resolvedPeriodId, "repayments"),
   ]);
+
+  const memberById = new Map(members.map((m) => [m.id, m]));
+  const contributionById = new Map(contributions.map((c) => [c.id, c]));
+  const loanById = new Map(loans.map((l) => [l.id, l]));
+  const penaltyById = new Map(penalties.map((p) => [p.id, p]));
+  const repaymentById = new Map(repayments.map((r) => [r.id, r]));
+
+  const nameOf = (memberId?: string) => {
+    if (!memberId) return "";
+    const m = memberById.get(memberId);
+    return m ? memberDisplayName(m) : "";
+  };
+
+  const memberLabelForCash = (e: CashEntry): string => {
+    if (!e.reference) return "";
+    let memberId: string | undefined;
+    if (e.origin === CASH_ORIGIN_CONTRIBUTION) {
+      memberId = contributionById.get(e.reference)?.memberId;
+    } else if (e.origin === CASH_ORIGIN_LOAN) {
+      memberId = loanById.get(e.reference)?.memberId;
+    } else if (e.origin === CASH_ORIGIN_PENALTY) {
+      memberId = penaltyById.get(e.reference)?.memberId;
+    } else if (e.origin === CASH_ORIGIN_REPAYMENT) {
+      const rem = repaymentById.get(e.reference);
+      memberId = rem ? loanById.get(rem.loanId)?.memberId : undefined;
+      if (!memberId) memberId = loanById.get(e.reference)?.memberId;
+    }
+    return nameOf(memberId);
+  };
 
   const disbursedLoans = loans.filter(
     (l) => l.status !== "En attente" && l.status !== "Refusé"
@@ -141,24 +216,100 @@ export async function getDashboardStats(periodId?: string) {
     (s, l) => s + l.interestMonth1 + l.interestMonth2 + l.interestExtra,
     0
   );
-  const unpaidPenalties = penalties
-    .filter((p) => !p.paid)
-    .reduce((s, p) => s + p.amount, 0);
+  const unpaidPenaltyRows = penalties.filter((p) => !p.paid);
+  const unpaidPenalties = unpaidPenaltyRows.reduce((s, p) => s + p.amount, 0);
   const loansDue = loans
     .filter((l) => l.status === "En cours" || l.status === "En retard")
     .reduce((s, l) => s + loanRemaining(l), 0);
 
+  const pendingLoans = loans.filter((l) => l.status === "En attente");
+  const lateLoans = loans.filter((l) => l.status === "En retard");
+  const activeMembersList = members.filter((m) => m.status === "Actif");
+
   const cashBalance = computeCashBalance(cashbook, settings.cashOpeningBalance);
+
+  const today = todayIsoLocal();
+  const { nextId } = orderWeeksForGrid(weeks, today);
+  const nextWeekRow = nextId ? weeks.find((w) => w.id === nextId) : undefined;
+  const nextWeek = nextWeekRow
+    ? { id: nextWeekRow.id, date: nextWeekRow.date }
+    : null;
+
+  let sessionPaidCount = 0;
+  if (nextWeek) {
+    const byMember = new Map(
+      contributions
+        .filter((c) => c.weekId === nextWeek.id)
+        .map((c) => [c.memberId, c])
+    );
+    sessionPaidCount = activeMembersList.filter(
+      (m) => contributionCountedAmount(byMember.get(m.id)) > 0
+    ).length;
+  }
+
+  const actionLoans: DashboardActionLoan[] = [...pendingLoans, ...lateLoans]
+    .sort((a, b) => {
+      const rank = (s: Loan["status"]) =>
+        s === "En attente" ? 0 : s === "En retard" ? 1 : 2;
+      return rank(a.status) - rank(b.status) || b.createdAt.localeCompare(a.createdAt);
+    })
+    .slice(0, 5)
+    .map((l) => ({
+      id: l.id,
+      memberName: nameOf(l.memberId) || "—",
+      amount: l.amount,
+      remaining: loanRemaining(l),
+      status: l.status,
+    }));
+
+  const recentCash: DashboardCashPreview[] = sortCashEntries(cashbook)
+    .slice()
+    .reverse()
+    .slice(0, 5)
+    .map((e) => ({
+      id: e.id,
+      date: e.date,
+      type: e.type,
+      description: e.description,
+      amount: e.inflow || e.outflow,
+      memberName: memberLabelForCash(e),
+    }));
+
+  const ranking: DashboardRankingRow[] = members
+    .map((m) => ({
+      memberId: m.id,
+      memberName: memberDisplayName(m),
+      total: contributions
+        .filter((c) => c.memberId === m.id)
+        .reduce((s, c) => s + c.amount, 0),
+      loansOutstanding: loans
+        .filter(
+          (l) =>
+            l.memberId === m.id &&
+            (l.status === "En cours" || l.status === "En retard")
+        )
+        .reduce((s, l) => s + loanRemaining(l), 0),
+    }))
+    .sort((a, b) => b.total - a.total);
 
   return {
     cashBalance,
     totalContributions,
     totalLoans,
     totalInterest,
-    activeMembers: members.filter((m) => m.status === "Actif").length,
+    activeMembers: activeMembersList.length,
     interestRate: settings.interestRateMonthly,
     unpaidPenalties,
+    unpaidPenaltiesCount: unpaidPenaltyRows.length,
     loansDue,
+    pendingLoansCount: pendingLoans.length,
+    lateLoansCount: lateLoans.length,
+    nextWeek,
+    sessionPaidCount,
+    sessionActiveCount: activeMembersList.length,
+    actionLoans,
+    recentCash,
+    ranking,
   };
 }
 
