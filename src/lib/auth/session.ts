@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { authOptions } from "./options";
 import {
   canAccessGestion,
+  canAccessMembreSpace,
   canWriteGestion,
   GESTION_ACCESS_ROLES,
   GESTION_WRITE_ROLES,
@@ -25,6 +26,14 @@ export async function requireSession() {
 export async function requireRole(roles: Role[]) {
   const session = await requireSession();
   if (!roles.includes(session.user.role)) {
+    redirect(homeForRole(session.user.role));
+  }
+  return session;
+}
+
+export async function requireMembreAccess() {
+  const session = await requireSession();
+  if (!canAccessMembreSpace(session.user.role, session.user.memberId)) {
     redirect(homeForRole(session.user.role));
   }
   return session;
@@ -61,4 +70,4 @@ export function canManage(role: Role): boolean {
   return canWriteGestion(role);
 }
 
-export { canAccessGestion, canWriteGestion };
+export { canAccessGestion, canAccessMembreSpace, canWriteGestion };

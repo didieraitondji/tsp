@@ -9,7 +9,7 @@ import {
   Shield,
   Users,
 } from "lucide-react";
-import { requireRole } from "@/lib/auth/session";
+import { requireMembreAccess } from "@/lib/auth/session";
 import { globalMembersRepo, usersRepo } from "@/lib/db/collections";
 import { listMemberTontines, memberDisplayName } from "@/lib/db/domain";
 import { formatFcfa } from "@/lib/format";
@@ -23,7 +23,7 @@ function initials(name: string): string {
 }
 
 export default async function MembreProfilPage() {
-  const session = await requireRole(["MEMBRE", "SUPER_ADMIN"]);
+  const session = await requireMembreAccess();
   const [users, members] = await Promise.all([
     usersRepo.all(),
     globalMembersRepo.all(),

@@ -1,4 +1,4 @@
-import { requireRole } from "@/lib/auth/session";
+import { requireMembreAccess } from "@/lib/auth/session";
 import {
   getMemberProgress,
   listMemberTontines,
@@ -18,7 +18,7 @@ export type MembrePageContext = {
 export async function loadMembreContext(
   requestedTontine?: string | null
 ): Promise<MembrePageContext> {
-  const session = await requireRole(["MEMBRE", "SUPER_ADMIN"]);
+  const session = await requireMembreAccess();
   const memberId = session.user.memberId;
   if (!memberId) {
     return {

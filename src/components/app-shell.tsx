@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  ArrowLeftRight,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -84,6 +85,8 @@ export function AppShell({
   profileHref,
   resolveTitle,
   headerExtra,
+  switchSpaceHref,
+  switchSpaceLabel,
 }: {
   children: ReactNode;
   userName: string;
@@ -97,6 +100,8 @@ export function AppShell({
   profileHref: string;
   resolveTitle: (pathname: string) => string;
   headerExtra?: ReactNode;
+  switchSpaceHref?: string;
+  switchSpaceLabel?: string;
 }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -359,6 +364,20 @@ export function AppShell({
                       <User className="h-4 w-4 text-[var(--muted)]" strokeWidth={1.75} />
                       Mon profil
                     </Link>
+                    {switchSpaceHref && switchSpaceLabel && (
+                      <Link
+                        href={switchSpaceHref}
+                        role="menuitem"
+                        className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm text-[var(--navy)] transition hover:bg-[var(--cream)]"
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        <ArrowLeftRight
+                          className="h-4 w-4 text-[var(--muted)]"
+                          strokeWidth={1.75}
+                        />
+                        {switchSpaceLabel}
+                      </Link>
+                    )}
                     <button
                       type="button"
                       role="menuitem"

@@ -1,12 +1,13 @@
 import { Suspense, type ReactNode } from "react";
-import { requireRole } from "@/lib/auth/session";
+import { canAccessGestion, requireMembreAccess } from "@/lib/auth/session";
 import { listMemberTontines } from "@/lib/db/domain";
 import { MembreShell } from "@/components/membre-shell";
 
 export default async function MembreLayout({ children }: { children: ReactNode }) {
-  const session = await requireRole(["MEMBRE", "SUPER_ADMIN"]);
+  const session = await requireMembreAccess();
   const memberId = session.user.memberId;
   const tontines = memberId ? await listMemberTontines(memberId) : [];
+  const showGestionSpace = canAccessGestion(session.user.role);
 
   return (
     <Suspense
@@ -25,6 +26,7 @@ export default async function MembreLayout({ children }: { children: ReactNode }
           status: t.status,
         }))}
         selectedTontineId={null}
+        showGestionSpace={showGestionSpace}
       >
         {children}
       </MembreShell>

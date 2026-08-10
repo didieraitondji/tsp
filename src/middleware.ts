@@ -28,11 +28,16 @@ export default withAuth(
       return NextResponse.redirect(new URL(fallback(role), req.url));
     }
 
-    if (path.startsWith("/membre") && role !== "MEMBRE" && role !== "SUPER_ADMIN") {
-      if (role === "GESTIONNAIRE" || role === "GESTIONNAIRE_LECTURE") {
-        return NextResponse.redirect(new URL("/gestion", req.url));
+    if (path.startsWith("/membre")) {
+      const memberId = token?.memberId as string | null | undefined;
+      const canMembre =
+        role === "MEMBRE" ||
+        role === "SUPER_ADMIN" ||
+        ((role === "GESTIONNAIRE" || role === "GESTIONNAIRE_LECTURE") &&
+          Boolean(memberId));
+      if (!canMembre) {
+        return NextResponse.redirect(new URL(fallback(role), req.url));
       }
-      return NextResponse.redirect(new URL(fallback(role), req.url));
     }
 
     return NextResponse.next();

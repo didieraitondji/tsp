@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  ArrowLeftRight,
   ChevronDown,
   Handshake,
   LayoutDashboard,
@@ -58,12 +59,14 @@ export function MembreShell({
   userPhone,
   tontines,
   selectedTontineId,
+  showGestionSpace = false,
 }: {
   children: ReactNode;
   userName: string;
   userPhone?: string;
   tontines: MembreTontineOption[];
   selectedTontineId: string | null;
+  showGestionSpace?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -237,6 +240,20 @@ export function MembreShell({
                       <User className="h-4 w-4 text-[var(--muted)]" strokeWidth={1.75} />
                       Mon profil
                     </Link>
+                    {showGestionSpace && (
+                      <Link
+                        href="/gestion"
+                        role="menuitem"
+                        className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition hover:bg-[var(--cream)]"
+                        onClick={() => setMenuOpen(false)}
+                      >
+                        <ArrowLeftRight
+                          className="h-4 w-4 text-[var(--muted)]"
+                          strokeWidth={1.75}
+                        />
+                        Espace gestion
+                      </Link>
+                    )}
                     <button
                       type="button"
                       role="menuitem"
@@ -316,6 +333,16 @@ export function MembreShell({
                   </Link>
                 );
               })}
+              {showGestionSpace && (
+                <Link
+                  href="/gestion"
+                  onClick={() => setMobileOpen(false)}
+                  className="mt-2 flex items-center gap-3 rounded-xl border border-white/10 px-3 py-2.5 text-sm font-medium text-[#FFCD79] transition hover:bg-white/5"
+                >
+                  <ArrowLeftRight className="h-4 w-4" strokeWidth={1.75} />
+                  Espace gestion
+                </Link>
+              )}
             </nav>
           </aside>
         </div>

@@ -47,11 +47,13 @@ export function GestionShell({
   userName,
   userPhone,
   roleLabel,
+  showMembreSpace = false,
 }: {
   children: ReactNode;
   userName: string;
   userPhone?: string;
   roleLabel: string;
+  showMembreSpace?: boolean;
 }) {
   return (
     <AppShell
@@ -65,6 +67,8 @@ export function GestionShell({
       navBottom={NAV_BOTTOM}
       profileHref="/gestion/profil"
       resolveTitle={pageTitle}
+      switchSpaceHref={showMembreSpace ? "/membre" : undefined}
+      switchSpaceLabel={showMembreSpace ? "Espace membre" : undefined}
     >
       {children}
     </AppShell>

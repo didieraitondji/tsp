@@ -24,6 +24,24 @@ export function canAccessGestion(role: Role): boolean {
   return GESTION_ACCESS_ROLES.includes(role);
 }
 
+/**
+ * Espace membre : rôle MEMBRE / SUPER_ADMIN,
+ * ou gestionnaire (écriture ou lecture) lié à une fiche membre.
+ */
+export function canAccessMembreSpace(
+  role: Role,
+  memberId?: string | null
+): boolean {
+  if (role === "MEMBRE" || role === "SUPER_ADMIN") return true;
+  if (
+    (role === "GESTIONNAIRE" || role === "GESTIONNAIRE_LECTURE") &&
+    Boolean(memberId)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function canWriteGestion(role: Role): boolean {
   return GESTION_WRITE_ROLES.includes(role);
 }
