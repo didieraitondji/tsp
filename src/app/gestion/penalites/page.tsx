@@ -16,7 +16,7 @@ import type { Penalty, Settings } from "@/lib/types";
 export default async function PenalitesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tontine?: string; statut?: string }>;
+  searchParams: Promise<{ tontine?: string; statut?: string; q?: string; date?: string }>;
 }) {
   const session = await requireGestionAccess();
   const canWrite = canWriteGestion(session.user.role);
@@ -26,6 +26,8 @@ export default async function PenalitesPage({
   const periodId = sp.tontine?.trim() || periods[0]?.id || "";
   const period = periods.find((p) => p.id === periodId) ?? null;
   const statusFilter = sp.statut?.trim() || "all";
+  const nameQuery = sp.q?.trim() || "";
+  const dateFilter = sp.date?.trim() || "";
 
   const members = period ? await listEnrolledForPeriod(period.id) : [];
   const byId = new Map(members.map((m) => [m.id, m]));
@@ -56,12 +58,24 @@ export default async function PenalitesPage({
     })
   );
 
-  const filtered =
-    statusFilter === "paye"
-      ? penalties.filter((p) => p.paid)
-      : statusFilter === "impaye"
-        ? penalties.filter((p) => !p.paid)
-        : penalties;
+  const normalize = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+  const nameNeedle = nameQuery ? normalize(nameQuery) : "";
+
+  const filtered = penalties.filter((p) => {
+    if (statusFilter === "paye" && !p.paid) return false;
+    if (statusFilter === "impaye" && p.paid) return false;
+    if (dateFilter && p.date !== dateFilter) return false;
+    if (nameNeedle) {
+      const m = byId.get(p.memberId);
+      const label = m ? memberDisplayName(m) : p.memberId;
+      if (!normalize(label).includes(nameNeedle)) return false;
+    }
+    return true;
+  });
 
   const sorted = [...filtered].sort(
     (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt)
@@ -70,6 +84,8 @@ export default async function PenalitesPage({
   const unpaid = penalties.filter((p) => !p.paid);
   const unpaidTotal = unpaid.reduce((s, p) => s + p.amount, 0);
   const paidTotal = penalties.filter((p) => p.paid).reduce((s, p) => s + p.amount, 0);
+  const hasListFilters =
+    statusFilter !== "all" || Boolean(nameQuery) || Boolean(dateFilter);
 
   return (
     <div className="-mx-4 px-4 md:-mx-8 md:px-[100px]">
@@ -153,13 +169,15 @@ export default async function PenalitesPage({
                 <p className="text-sm font-semibold text-[var(--navy)]">{period.name}</p>
                 <p className="text-xs text-[var(--muted)]">
                   {sorted.length} pénalité{sorted.length === 1 ? "" : "s"}
-                  {statusFilter !== "all" ? " (filtrées)" : ""}
+                  {hasListFilters ? " (filtrées)" : ""}
                 </p>
               </div>
               <PenalitesTontineFilter
                 periods={periods.map((p) => ({ id: p.id, name: p.name }))}
                 value={periodId}
                 statut={statusFilter}
+                q={nameQuery}
+                date={dateFilter}
               />
             </div>
 
