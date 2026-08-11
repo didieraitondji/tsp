@@ -9,6 +9,7 @@ import {
   applyLatePenaltiesForWeek,
   CASH_ORIGIN_LOAN,
   CASH_ORIGIN_PENALTY,
+  completeLateMonths,
   computeLoanFigures,
   loanAccruedNormalMonths,
   loanContractedMonths,
@@ -1126,15 +1127,36 @@ export async function createLoanAction(formData: FormData) {
     parsed.data.dueDate,
     maxMonths
   );
+  const today = todayIsoLocal();
   const figures = computeLoanFigures(parsed.data.amount, settings, {
     withdrawalFeeOverride: parsed.data.withdrawalFee ?? 0,
     contractedMonths: contracted,
     accruedMonths: loanAccruedNormalMonths(
       parsed.data.date,
-      todayIsoLocal(),
+      today,
       contracted
     ),
   });
+
+  const rawLate =
+    settings.interestRateExtra ?? DEFAULT_SETTINGS.interestRateExtra;
+  const lateRate = Math.abs(rawLate - 0.015) < 1e-9 ? 0.15 : rawLate;
+  let interestExtra = 0;
+  let lateApplied = 0;
+  if (parsed.data.dueDate && today > parsed.data.dueDate) {
+    const monthsLate = completeLateMonths(parsed.data.dueDate, today);
+    // Aucun remboursement encore → capital = montant du prêt
+    for (let i = 0; i < monthsLate; i++) {
+      interestExtra += Math.round(parsed.data.amount * lateRate);
+      lateApplied += 1;
+    }
+  }
+  const totalDue =
+    parsed.data.amount +
+    figures.interestMonth1 +
+    figures.interestMonth2 +
+    interestExtra;
+
   const year = settings.year;
   const existing = await readCollectionForPeriodId<Loan>(periodId, "loans");
   const loanId = nextSequentialId(
@@ -1154,12 +1176,12 @@ export async function createLoanAction(formData: FormData) {
     witnessAddress: first.address,
     witnesses: resolved,
     docsChecklist: { letterSigned: false, cipVerified: false },
-    lateInterestAppliedMonths: 0,
+    lateInterestAppliedMonths: lateApplied,
     dueDate: parsed.data.dueDate,
     interestMonth1: figures.interestMonth1,
     interestMonth2: figures.interestMonth2,
-    interestExtra: 0,
-    totalDue: figures.totalDue,
+    interestExtra,
+    totalDue,
     repaid: 0,
     status: "En attente",
     notes: parsed.data.notes,

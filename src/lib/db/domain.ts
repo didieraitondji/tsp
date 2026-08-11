@@ -268,12 +268,8 @@ export async function reconcileLateLoanInterest(periodId: string): Promise<numbe
 
     let interestExtra = loan.interestExtra;
     let applied = loan.lateInterestAppliedMonths ?? 0;
-    // Retard 15 % seulement après décaissement
-    if (
-      (loan.status === "En cours" || loan.status === "En retard") &&
-      loan.dueDate &&
-      today > loan.dueDate
-    ) {
+    // Retard 15 % dès que l’échéance est dépassée (y compris En attente : dû aujourd’hui)
+    if (loan.dueDate && today > loan.dueDate) {
       const monthsLate = completeLateMonths(loan.dueDate, today);
       const toApply = monthsLate - applied;
       if (toApply > 0) {
