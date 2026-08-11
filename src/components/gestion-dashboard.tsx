@@ -12,9 +12,15 @@ import {
 import type {
   DashboardActionLoan,
   DashboardCashPreview,
+  DashboardContributionPoint,
   DashboardRankingRow,
+  DashboardSessionPoint,
 } from "@/lib/db/domain";
 import { formatDate, formatFcfa } from "@/lib/format";
+import {
+  ContributionsEvolutionChart,
+  SessionsEvolutionChart,
+} from "@/components/contributions-evolution-chart";
 
 export type GestionDashboardStats = {
   cashBalance: number;
@@ -32,6 +38,8 @@ export type GestionDashboardStats = {
   actionLoans: DashboardActionLoan[];
   recentCash: DashboardCashPreview[];
   ranking: DashboardRankingRow[];
+  contributionEvolution: DashboardContributionPoint[];
+  sessionEvolution: DashboardSessionPoint[];
 };
 
 function withTontine(href: string, periodId: string): string {
@@ -361,6 +369,16 @@ export function GestionDashboard({
           </div>
         </section>
       </div>
+
+      <ContributionsEvolutionChart
+        points={stats.contributionEvolution}
+        periodId={periodId}
+      />
+
+      <SessionsEvolutionChart
+        points={stats.sessionEvolution}
+        periodId={periodId}
+      />
 
       <section className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
         <div className="border-b border-[var(--line)] px-5 py-4">

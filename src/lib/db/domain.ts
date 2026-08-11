@@ -33,7 +33,7 @@ import {
   contributionCountedAmount,
   isContributionRecordLocked,
 } from "@/lib/contribution-status";
-import { orderWeeksForGrid, todayIsoLocal } from "@/lib/cotisations-report";
+import { buildMonthlyTotals, orderWeeksForGrid, todayIsoLocal } from "@/lib/cotisations-report";
 import { listPeriods } from "./periods";
 import {
   readCollectionForPeriodId,
@@ -380,6 +380,22 @@ export type DashboardRankingRow = {
   loansOutstanding: number;
 };
 
+export type DashboardContributionPoint = {
+  key: string;
+  label: string;
+  /** Cotisations du mois (payées / comptées). */
+  amount: number;
+  /** Cumul depuis le début de la tontine. */
+  cumulative: number;
+};
+
+export type DashboardSessionPoint = {
+  key: string;
+  label: string;
+  date: string;
+  amount: number;
+};
+
 export async function getDashboardStats(periodId?: string) {
   const empty = {
     cashBalance: 0,
@@ -399,6 +415,8 @@ export async function getDashboardStats(periodId?: string) {
     actionLoans: [] as DashboardActionLoan[],
     recentCash: [] as DashboardCashPreview[],
     ranking: [] as DashboardRankingRow[],
+    contributionEvolution: [] as DashboardContributionPoint[],
+    sessionEvolution: [] as DashboardSessionPoint[],
   };
 
   let resolvedPeriodId = periodId?.trim() || "";
@@ -546,6 +564,43 @@ export async function getDashboardStats(periodId?: string) {
     }))
     .sort((a, b) => b.total - a.total);
 
+  const { months, monthTotals } = buildMonthlyTotals(
+    weeks,
+    contributions,
+    members.map((m) => m.id)
+  );
+  let running = 0;
+  const contributionEvolution: DashboardContributionPoint[] = months.map(
+    (mo) => {
+      const amount = monthTotals.get(mo.key) ?? 0;
+      running += amount;
+      const shortLabel = mo.label.split(/\s+/)[0] ?? mo.key;
+      return {
+        key: mo.key,
+        label: shortLabel.slice(0, 3),
+        amount,
+        cumulative: running,
+      };
+    }
+  );
+
+  const sessionEvolution: DashboardSessionPoint[] = [...weeks]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((w) => {
+      const amount = contributions
+        .filter((c) => c.weekId === w.id)
+        .reduce((s, c) => s + contributionCountedAmount(c), 0);
+      const parts = w.date.split("-");
+      const label =
+        parts.length === 3 ? `${parts[2]}/${parts[1]}` : w.date;
+      return {
+        key: w.id,
+        label,
+        date: w.date,
+        amount,
+      };
+    });
+
   return {
     cashBalance,
     totalContributions,
@@ -564,6 +619,8 @@ export async function getDashboardStats(periodId?: string) {
     actionLoans,
     recentCash,
     ranking,
+    contributionEvolution,
+    sessionEvolution,
   };
 }
 
