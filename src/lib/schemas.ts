@@ -38,6 +38,7 @@ export const settingsSchema = z.object({
   penaltyAbsence: z.number().min(0),
   loanWithdrawalFeeRate: z.number().min(0),
   loanMaxDurationMonths: z.number().min(1),
+  loanSecondWitnessThreshold: z.number().min(0),
   maxMembers: z.number().min(1),
   year: z.number().int(),
   cashOpeningBalance: z.number(),
@@ -133,16 +134,23 @@ export const markContributionSchema = z.object({
   status: z.enum(["paid", "unpaid"]),
 });
 
+export const loanWitnessSchema = z.object({
+  memberId: z.string().optional(),
+  name: z.string().min(2, "Nom de la caution requis"),
+  phone: beninPhoneOptional,
+  address: z.string().optional(),
+  isGroupMember: z.boolean(),
+  cipProvided: z.boolean().optional(),
+});
+
 export const loanInputSchema = z.object({
-  memberId: z.string(),
-  date: z.string(),
+  memberId: z.string().min(1),
+  date: z.string().min(1),
   amount: z.number().positive(),
   /** Frais de retrait en FCFA (optionnel ; défaut = taux paramètres). */
   withdrawalFee: z.number().min(0).optional(),
-  dueDate: z.string(),
-  witnessName: z.string().min(2, "Témoin requis"),
-  witnessPhone: beninPhoneOptional,
-  witnessAddress: z.string().optional(),
+  dueDate: z.string().min(1),
+  witnesses: z.array(loanWitnessSchema).min(1, "Au moins une caution"),
   notes: z.string().optional(),
 });
 

@@ -41,6 +41,8 @@ export interface Settings {
   penaltyAbsence: number;
   loanWithdrawalFeeRate: number;
   loanMaxDurationMonths: number;
+  /** Au-delà de ce montant (FCFA), 2 cautions sont exigées. */
+  loanSecondWitnessThreshold: number;
   maxMembers: number;
   year: number;
   cashOpeningBalance: number;
@@ -127,16 +129,37 @@ export interface LoanApproval {
   note?: string;
 }
 
+/** Caution / témoin d’un prêt. */
+export interface LoanWitness {
+  memberId?: string;
+  name: string;
+  phone?: string;
+  address?: string;
+  isGroupMember: boolean;
+  /** Copie CIP fournie (requis si caution externe). */
+  cipProvided?: boolean;
+}
+
+export interface LoanDocsChecklist {
+  letterSigned: boolean;
+  cipVerified: boolean;
+}
+
 export interface Loan {
   id: string;
   memberId: string;
   date: string;
   amount: number;
   withdrawalFee: number;
-  /** Témoin du demandeur (obligatoire). */
+  /** Témoin du demandeur (obligatoire) — sync avec witnesses[0]. */
   witnessName: string;
   witnessPhone?: string;
   witnessAddress?: string;
+  /** Cautions structurées (V1 règles bureau). */
+  witnesses?: LoanWitness[];
+  docsChecklist?: LoanDocsChecklist;
+  /** Mois de retard déjà facturés (intérêt extra). */
+  lateInterestAppliedMonths?: number;
   dueDate: string;
   interestMonth1: number;
   interestMonth2: number;

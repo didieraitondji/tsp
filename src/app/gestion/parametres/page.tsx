@@ -427,7 +427,7 @@ function ReglesSection({
                 value: formatPercent(settings.interestRateMonthly),
               },
               {
-                label: "Taux supplémentaire (impayé)",
+                label: "Taux après échéance (retard)",
                 value: formatPercent(settings.interestRateExtra),
               },
               {
@@ -437,6 +437,12 @@ function ReglesSection({
               {
                 label: "Durée max prêt",
                 value: `${settings.loanMaxDurationMonths} mois`,
+              },
+              {
+                label: "Seuil 2ᵉ caution",
+                value: formatFcfa(
+                  settings.loanSecondWitnessThreshold ?? 20000
+                ),
               },
               {
                 label: "Pénalité retard cotisation",

@@ -62,7 +62,8 @@ export function AdminSettingsForm({
       fee,
       cashOut: amount + fee,
       interestMonth: interest,
-      totalDueApprox: amount + interest * 2,
+      totalDueApprox: amount + interest,
+      note: "1 mois d’intérêt (exemple) — le réel dépend des dates du prêt",
     };
   }, [exampleAmount, withdrawalFee, interestMonthly]);
 
@@ -84,7 +85,7 @@ export function AdminSettingsForm({
         <SummaryCard
           label="Intérêt mensuel"
           value={`${interestMonthly || "0"} %`}
-          hint={`Extra impayé ${interestExtra || "0"} %`}
+          hint={`Retard ${interestExtra || "0"} % / mois`}
         />
         <SummaryCard
           label="Frais de retrait"
@@ -196,7 +197,7 @@ export function AdminSettingsForm({
             </p>
           </div>
           <div>
-            <Label>Taux supplémentaire impayé (%)</Label>
+            <Label>Taux après échéance — retard (%)</Label>
             <Input
               name="interestRateExtra"
               type="number"
@@ -205,6 +206,10 @@ export function AdminSettingsForm({
               value={interestExtra}
               onChange={(e) => setInterestExtra(e.target.value)}
             />
+            <p className="mt-1 text-[11px] text-[var(--muted)]">
+              Appliqué automatiquement chaque mois de retard sur le capital restant
+              (règle bureau : 15 %).
+            </p>
           </div>
           <div>
             <Label>Frais de retrait prêt (%)</Label>
@@ -217,7 +222,7 @@ export function AdminSettingsForm({
               onChange={(e) => setWithdrawalFee(e.target.value)}
             />
             <p className="mt-1 text-[11px] text-[var(--muted)]">
-              Sortie caisse = montant du prêt + frais.
+              À la charge du demandeur — sortie caisse = montant + frais.
             </p>
           </div>
           <div>
@@ -228,6 +233,22 @@ export function AdminSettingsForm({
               min={1}
               defaultValue={settings.loanMaxDurationMonths}
             />
+          </div>
+          <div>
+            <Label>Seuil 2ᵉ caution (FCFA)</Label>
+            <Input
+              name="loanSecondWitnessThreshold"
+              type="number"
+              min={0}
+              step={1000}
+              defaultValue={
+                settings.loanSecondWitnessThreshold ??
+                20000
+              }
+            />
+            <p className="mt-1 text-[11px] text-[var(--muted)]">
+              Au-delà de ce montant, 2 cautions sont exigées (dont ≥ 1 membre).
+            </p>
           </div>
         </div>
 

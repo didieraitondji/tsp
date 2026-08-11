@@ -2,19 +2,25 @@
 
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
-import { auditRepo, globalMembersRepo, settingsRepo, usersRepo } from "@/lib/db/collections";
+import { auditRepo, globalMembersRepo, listEnrolledForPeriod, settingsRepo, usersRepo } from "@/lib/db/collections";
 import {
+  addMonthsIso,
   appendCashEntry,
   applyLatePenaltiesForWeek,
   CASH_ORIGIN_LOAN,
   CASH_ORIGIN_PENALTY,
   computeLoanFigures,
+  loanAccruedNormalMonths,
+  loanContractedMonths,
+  loanRemaining,
   markContributionStatus,
   newId,
+  reconcileLateLoanInterest,
   removeCashEntriesByReference,
   unlockContribution,
   upsertContribution,
 } from "@/lib/db/domain";
+import { todayIsoLocal } from "@/lib/cotisations-report";
 import {
   requireGestionWrite,
   requireLoanApprover,
@@ -37,8 +43,7 @@ import {
   updateUserSchema,
   weekInputSchema,
 } from "@/lib/schemas";
-import type { Enrollment, Loan, Member, MemberSnapshot, Penalty, Periodicity, Repayment, User } from "@/lib/types";
-import { loanRemaining } from "@/lib/db/domain";
+import type { Enrollment, Loan, LoanWitness, Member, MemberSnapshot, Penalty, Periodicity, Repayment, User } from "@/lib/types";
 import {
   closeEnrollments,
   closePeriod,
@@ -298,6 +303,10 @@ export async function saveSettingsAction(
     penaltyAbsence: Number(formData.get("penaltyAbsence")),
     loanWithdrawalFeeRate: parseSettingsRate(formData.get("loanWithdrawalFeeRate")),
     loanMaxDurationMonths: Number(formData.get("loanMaxDurationMonths")),
+    loanSecondWitnessThreshold: Number(
+      formData.get("loanSecondWitnessThreshold") ??
+        DEFAULT_SETTINGS.loanSecondWitnessThreshold
+    ),
     maxMembers: Number(formData.get("maxMembers")),
     year: Number(formData.get("year")),
     cashOpeningBalance: Number(formData.get("cashOpeningBalance")),
@@ -1004,15 +1013,45 @@ export async function createLoanAction(formData: FormData) {
   const feeRaw = String(formData.get("withdrawalFee") ?? "").trim();
   const feeParsed =
     feeRaw === "" ? 0 : Number(feeRaw.replace(",", "."));
+
+  const parseWitness = (prefix: string): LoanWitness | null => {
+    const memberId = String(formData.get(`${prefix}MemberId`) || "").trim();
+    const name = String(formData.get(`${prefix}Name`) || "").trim();
+    const phoneRaw = String(formData.get(`${prefix}Phone`) || "").trim();
+    const address = String(formData.get(`${prefix}Address`) || "").trim();
+    const mode = String(formData.get(`${prefix}Mode`) || "member").trim();
+    const cipProvided = formData.get(`${prefix}CipProvided`) === "on";
+    if (mode === "member" || memberId) {
+      if (!memberId) return null;
+      return {
+        memberId,
+        name: name || memberId,
+        phone: phoneRaw || undefined,
+        address: address || undefined,
+        isGroupMember: true,
+      };
+    }
+    if (!name) return null;
+    return {
+      name,
+      phone: phoneRaw || undefined,
+      address: address || undefined,
+      isGroupMember: false,
+      cipProvided,
+    };
+  };
+
+  const w1 = parseWitness("witness1");
+  const w2 = parseWitness("witness2");
+  const witnesses = [w1, w2].filter(Boolean) as LoanWitness[];
+
   const parsed = loanInputSchema.safeParse({
     memberId: formData.get("memberId"),
     date: formData.get("date"),
     amount: Number(formData.get("amount")),
     withdrawalFee: Number.isFinite(feeParsed) ? Math.max(0, feeParsed) : 0,
     dueDate: formData.get("dueDate"),
-    witnessName: formData.get("witnessName") || undefined,
-    witnessPhone: formData.get("witnessPhone") || undefined,
-    witnessAddress: formData.get("witnessAddress") || undefined,
+    witnesses,
     notes: formData.get("notes") || undefined,
   });
   if (!parsed.success || !periodId) return;
@@ -1020,6 +1059,58 @@ export async function createLoanAction(formData: FormData) {
   const meta = await readMeta();
   const period = meta.periods.find((p) => p.id === periodId);
   if (!period) return;
+
+  const settings = await readObjectForPeriodId(periodId, "settings", DEFAULT_SETTINGS);
+  const threshold =
+    settings.loanSecondWitnessThreshold ??
+    DEFAULT_SETTINGS.loanSecondWitnessThreshold;
+  const maxMonths = settings.loanMaxDurationMonths || 2;
+
+  const enrolled = await listEnrolledForPeriod(periodId);
+  const borrower = enrolled.find((m) => m.id === parsed.data.memberId);
+  if (!borrower || borrower.status !== "Actif") return;
+
+  const maxDue = addMonthsIso(parsed.data.date, maxMonths);
+  if (parsed.data.dueDate > maxDue) return;
+
+  const needTwo = parsed.data.amount > threshold;
+  if (needTwo && parsed.data.witnesses.length < 2) return;
+  if (!needTwo && parsed.data.witnesses.length < 1) return;
+
+  const groupCount = parsed.data.witnesses.filter((w) => w.isGroupMember).length;
+  if (groupCount < 1) return;
+  if (!parsed.data.witnesses[0]?.isGroupMember) return;
+
+  const activeById = new Map(
+    enrolled.filter((m) => m.status === "Actif").map((m) => [m.id, m])
+  );
+  const resolved: LoanWitness[] = [];
+  for (const w of parsed.data.witnesses) {
+    if (w.isGroupMember) {
+      if (!w.memberId || !activeById.has(w.memberId)) return;
+      if (w.memberId === parsed.data.memberId) return;
+      const m = activeById.get(w.memberId)!;
+      resolved.push({
+        memberId: m.id,
+        name: `${m.lastName} ${m.firstName}`.trim(),
+        phone: m.phone,
+        address: m.address,
+        isGroupMember: true,
+      });
+    } else {
+      if (w.name.length < 2) return;
+      resolved.push({
+        name: w.name,
+        phone: w.phone,
+        address: w.address,
+        isGroupMember: false,
+        cipProvided: Boolean(w.cipProvided),
+      });
+    }
+  }
+  // Uniques memberIds
+  const ids = resolved.map((w) => w.memberId).filter(Boolean);
+  if (new Set(ids).size !== ids.length) return;
 
   const users = await usersRepo.all();
   let requiredApproverIds = users
@@ -1030,13 +1121,20 @@ export async function createLoanAction(formData: FormData) {
   }
   if (requiredApproverIds.length === 0) return;
 
-  const settings = await readObjectForPeriodId(periodId, "settings", DEFAULT_SETTINGS);
-  // Champ toujours envoyé : vide/0 = 0 FCFA ; prérempli côté UI avec le taux paramètres.
-  const figures = computeLoanFigures(
-    parsed.data.amount,
-    settings,
-    parsed.data.withdrawalFee ?? 0
+  const contracted = loanContractedMonths(
+    parsed.data.date,
+    parsed.data.dueDate,
+    maxMonths
   );
+  const figures = computeLoanFigures(parsed.data.amount, settings, {
+    withdrawalFeeOverride: parsed.data.withdrawalFee ?? 0,
+    contractedMonths: contracted,
+    accruedMonths: loanAccruedNormalMonths(
+      parsed.data.date,
+      todayIsoLocal(),
+      contracted
+    ),
+  });
   const year = settings.year;
   const existing = await readCollectionForPeriodId<Loan>(periodId, "loans");
   const loanId = nextSequentialId(
@@ -1044,15 +1142,19 @@ export async function createLoanAction(formData: FormData) {
     `PRE-${year}-`
   );
 
+  const first = resolved[0];
   const loan: Loan = {
     id: loanId,
     memberId: parsed.data.memberId,
     date: parsed.data.date,
     amount: parsed.data.amount,
     withdrawalFee: figures.withdrawalFee,
-    witnessName: parsed.data.witnessName,
-    witnessPhone: parsed.data.witnessPhone,
-    witnessAddress: parsed.data.witnessAddress,
+    witnessName: first.name,
+    witnessPhone: first.phone,
+    witnessAddress: first.address,
+    witnesses: resolved,
+    docsChecklist: { letterSigned: false, cipVerified: false },
+    lateInterestAppliedMonths: 0,
     dueDate: parsed.data.dueDate,
     interestMonth1: figures.interestMonth1,
     interestMonth2: figures.interestMonth2,
@@ -1081,6 +1183,8 @@ export async function decideLoanAction(formData: FormData) {
   const loanId = String(formData.get("loanId") || "").trim();
   const decision = String(formData.get("decision") || "").trim();
   const note = String(formData.get("note") || "").trim() || undefined;
+  const letterSigned = formData.get("letterSigned") === "on";
+  const cipVerified = formData.get("cipVerified") === "on";
   if (!periodId || !loanId || (decision !== "approved" && decision !== "rejected")) return;
 
   const meta = await readMeta();
@@ -1102,6 +1206,19 @@ export async function decideLoanAction(formData: FormData) {
   const approvals = [...(loan.approvals ?? [])];
   if (approvals.some((a) => a.userId === session.user.id)) return;
 
+  const witnesses =
+    loan.witnesses && loan.witnesses.length > 0
+      ? loan.witnesses
+      : loan.witnessName
+        ? [{ name: loan.witnessName, isGroupMember: false as const }]
+        : [];
+  const needsCip = witnesses.some((w) => !w.isGroupMember);
+
+  if (decision === "approved") {
+    if (!letterSigned) return;
+    if (needsCip && !cipVerified) return;
+  }
+
   approvals.push({
     userId: session.user.id,
     userName: session.user.name,
@@ -1110,7 +1227,20 @@ export async function decideLoanAction(formData: FormData) {
     note,
   });
 
-  let next: Loan = { ...loan, approvals };
+  const docsChecklist = {
+    letterSigned:
+      decision === "approved"
+        ? true
+        : Boolean(loan.docsChecklist?.letterSigned),
+    cipVerified:
+      decision === "approved"
+        ? needsCip
+          ? true
+          : Boolean(loan.docsChecklist?.cipVerified)
+        : Boolean(loan.docsChecklist?.cipVerified),
+  };
+
+  let next: Loan = { ...loan, approvals, docsChecklist };
 
   if (decision === "rejected") {
     next = { ...next, status: "Refusé" };
@@ -1125,7 +1255,6 @@ export async function decideLoanAction(formData: FormData) {
   const approvedIds = new Set(
     approvals.filter((a) => a.decision === "approved").map((a) => a.userId)
   );
-  // Super admin approval counts for themselves if in required list; also allows completing when all gestionnaires approved
   const allApproved = required.every((id) => approvedIds.has(id));
 
   if (allApproved) {
@@ -1216,6 +1345,8 @@ export async function createRepaymentAction(formData: FormData) {
   const period = meta.periods.find((p) => p.id === periodId);
   if (!period) return;
 
+  await reconcileLateLoanInterest(periodId);
+
   const loans = await readCollectionForPeriodId<Loan>(periodId, "loans");
   const loan = loans.find((l) => l.id === parsed.data.loanId);
   if (!loan || loan.status === "Remboursé" || loan.status === "En attente" || loan.status === "Refusé") {
@@ -1233,6 +1364,8 @@ export async function createRepaymentAction(formData: FormData) {
   const capital = amount - interest;
   const newRepaid = loan.repaid + amount;
   const rem = Math.max(0, loan.totalDue - newRepaid);
+  const today = parsed.data.date;
+  const stillLate = rem > 0 && loan.dueDate && today > loan.dueDate;
 
   const repayments = await readCollectionForPeriodId<Repayment>(periodId, "repayments");
   const repaymentId = newId("REM");
@@ -1259,7 +1392,12 @@ export async function createRepaymentAction(formData: FormData) {
         ? {
             ...l,
             repaid: newRepaid,
-            status: rem <= 0 ? ("Remboursé" as const) : ("En cours" as const),
+            status:
+              rem <= 0
+                ? ("Remboursé" as const)
+                : stillLate
+                  ? ("En retard" as const)
+                  : ("En cours" as const),
           }
         : l
     )

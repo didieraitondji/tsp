@@ -5,6 +5,7 @@ import type {
   EnrolledMember,
   Enrollment,
   Loan,
+  LoanWitness,
   Member,
   MemberStatus,
   Penalty,
@@ -55,25 +56,281 @@ export function memberDisplayName(m: Pick<Member, "lastName" | "firstName">): st
 export function computeLoanFigures(
   amount: number,
   settings: Settings,
-  withdrawalFeeOverride?: number | null
+  opts?: {
+    withdrawalFeeOverride?: number | null;
+    /** Mois contractuels 1–2 (selon échéance). Défaut 2. */
+    contractedMonths?: number;
+    /** Mois déjà courus à 10 % (0–contracted). Défaut = contracted (forfait). */
+    accruedMonths?: number;
+  }
 ): {
   withdrawalFee: number;
   interestMonth1: number;
   interestMonth2: number;
   totalDue: number;
+  contractedMonths: number;
+  accruedMonths: number;
 } {
+  const withdrawalFeeOverride = opts?.withdrawalFeeOverride;
+  const contractedMonths = Math.min(
+    2,
+    Math.max(1, opts?.contractedMonths ?? 2)
+  );
+  const accruedMonths = Math.min(
+    contractedMonths,
+    Math.max(0, opts?.accruedMonths ?? contractedMonths)
+  );
   const withdrawalFee =
     withdrawalFeeOverride != null && Number.isFinite(withdrawalFeeOverride)
       ? Math.max(0, Math.round(withdrawalFeeOverride))
       : Math.round(amount * settings.loanWithdrawalFeeRate);
-  const interestMonth1 = Math.round(amount * settings.interestRateMonthly);
-  const interestMonth2 = Math.round(amount * settings.interestRateMonthly);
+  const perMonth = Math.round(amount * settings.interestRateMonthly);
+  const interestMonth1 = accruedMonths >= 1 ? perMonth : 0;
+  const interestMonth2 = accruedMonths >= 2 ? perMonth : 0;
   const totalDue = amount + interestMonth1 + interestMonth2;
-  return { withdrawalFee, interestMonth1, interestMonth2, totalDue };
+  return {
+    withdrawalFee,
+    interestMonth1,
+    interestMonth2,
+    totalDue,
+    contractedMonths,
+    accruedMonths,
+  };
 }
 
 export function loanRemaining(loan: Loan): number {
   return Math.max(0, loan.totalDue - loan.repaid);
+}
+
+/** Capital restant : repaid couvre d’abord les intérêts, puis le capital. */
+export function loanCapitalRemaining(loan: Loan): number {
+  const interests =
+    loan.interestMonth1 + loan.interestMonth2 + loan.interestExtra;
+  const interestPaid = Math.min(loan.repaid, interests);
+  const capitalPaid = Math.max(0, loan.repaid - interestPaid);
+  return Math.max(0, loan.amount - capitalPaid);
+}
+
+export function loanWitnessesOf(loan: Loan): LoanWitness[] {
+  if (loan.witnesses && loan.witnesses.length > 0) return loan.witnesses;
+  if (loan.witnessName) {
+    return [
+      {
+        name: loan.witnessName,
+        phone: loan.witnessPhone,
+        address: loan.witnessAddress,
+        isGroupMember: false,
+      },
+    ];
+  }
+  return [];
+}
+
+/** Ajoute N mois calendaires à une date ISO (YYYY-MM-DD). */
+export function addMonthsIso(isoDate: string, months: number): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  if (!y || !m || !d) return isoDate;
+  const dt = new Date(y, m - 1 + months, d);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+/**
+ * Mois contractuels (1–2) entre date du prêt et échéance.
+ * Même mois calendaire avec échéance après la date → 1 mois.
+ */
+export function loanContractedMonths(
+  loanDate: string,
+  dueDate: string,
+  maxMonths = 2
+): number {
+  if (!loanDate || !dueDate) return 1;
+  if (dueDate <= loanDate) return 1;
+  const [sy, sm, sd] = loanDate.split("-").map(Number);
+  const [ey, em, ed] = dueDate.split("-").map(Number);
+  if (!sy || !sm || !sd || !ey || !em || !ed) return 1;
+  let months = (ey - sy) * 12 + (em - sm);
+  if (ed < sd) months -= 1;
+  if (months < 1) months = 1;
+  return Math.min(Math.max(1, maxMonths), Math.max(1, months));
+}
+
+/**
+ * Mois calendaires complets entre deux dates ISO (0 si moins d’un mois).
+ * Ex. 01/07 → 11/08 = 1 ; 01/07 → 01/09 = 2.
+ */
+export function calendarMonthsBetween(fromIso: string, toIso: string): number {
+  if (!fromIso || !toIso || toIso < fromIso) return 0;
+  const [fy, fm, fd] = fromIso.split("-").map(Number);
+  const [ty, tm, td] = toIso.split("-").map(Number);
+  if (!fy || !fm || !fd || !ty || !tm || !td) return 0;
+  let months = (ty - fy) * 12 + (tm - fm);
+  if (td < fd) months -= 1;
+  return Math.max(0, months);
+}
+
+/**
+ * Mois d’intérêt normal (10 %) déjà courus = mois complets depuis la date du prêt,
+ * plafonnés au contrat (max 2).
+ * Ex. prêt 01/07, aujourd’hui 11/08, contrat 2 mois → 1 mois couru (pas 2).
+ */
+export function loanAccruedNormalMonths(
+  loanDate: string,
+  todayIso: string,
+  contractedMonths: number
+): number {
+  if (!loanDate || todayIso < loanDate) return 0;
+  const elapsed = calendarMonthsBetween(loanDate, todayIso);
+  return Math.min(2, Math.max(0, contractedMonths), elapsed);
+}
+
+/** Mois de retard complets ; dès le 1er jour après échéance → au moins 1. */
+export function completeLateMonths(dueDate: string, todayIso: string): number {
+  if (!dueDate || todayIso <= dueDate) return 0;
+  const [dy, dm, dd] = dueDate.split("-").map(Number);
+  const [ty, tm, td] = todayIso.split("-").map(Number);
+  if (!dy || !dm || !dd || !ty || !tm || !td) return 0;
+  let months = (ty - dy) * 12 + (tm - dm);
+  if (td < dd) months -= 1;
+  return Math.max(1, months);
+}
+
+/**
+ * Séances passées non payées parmi les `lookback` dernières (alerte « mise bien »).
+ */
+export function countRecentUnpaidSessions(
+  memberId: string,
+  weeks: Week[],
+  contributions: Contribution[],
+  todayIso: string,
+  lookback = 4
+): number {
+  const past = [...weeks]
+    .filter((w) => w.date < todayIso)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, lookback);
+  if (past.length === 0) return 0;
+  const byWeek = new Map(
+    contributions
+      .filter((c) => c.memberId === memberId)
+      .map((c) => [c.weekId, c])
+  );
+  return past.filter((w) => contributionCountedAmount(byWeek.get(w.id)) <= 0)
+    .length;
+}
+
+/**
+ * Fait courir les intérêts :
+ * - 10 % / mois depuis la date du prêt (plafonné à l’échéance / 2 mois)
+ * - 15 % / mois de retard après échéance (sur capital restant)
+ */
+export async function reconcileLateLoanInterest(periodId: string): Promise<number> {
+  if (!periodId) return 0;
+  const meta = await readMeta();
+  const period = meta.periods.find((p) => p.id === periodId);
+  if (!period) return 0;
+
+  const [settings, loans] = await Promise.all([
+    readObjectForPeriodId(periodId, "settings", DEFAULT_SETTINGS),
+    readCollectionForPeriodId<Loan>(periodId, "loans"),
+  ]);
+  const monthlyRate = settings.interestRateMonthly;
+  const rawLate =
+    settings.interestRateExtra ?? DEFAULT_SETTINGS.interestRateExtra;
+  // Ancien défaut 1,5 % → 15 % (règle bureau)
+  const lateRate = Math.abs(rawLate - 0.015) < 1e-9 ? 0.15 : rawLate;
+  const maxMonths = settings.loanMaxDurationMonths || 2;
+  const today = todayIsoLocal();
+  let changed = 0;
+
+  const next = loans.map((loan) => {
+    const isOpen =
+      loan.status === "En cours" ||
+      loan.status === "En retard" ||
+      loan.status === "En attente";
+    if (!isOpen) return loan;
+
+    const startDate =
+      loan.status === "En attente"
+        ? loan.date
+        : loan.disbursedAt?.slice(0, 10) || loan.date;
+    const contracted = loanContractedMonths(
+      loan.date,
+      loan.dueDate,
+      maxMonths
+    );
+    const accrued = loanAccruedNormalMonths(startDate, today, contracted);
+    const perMonth = Math.round(loan.amount * monthlyRate);
+    const interestMonth1 = accrued >= 1 ? perMonth : 0;
+    const interestMonth2 = accrued >= 2 ? perMonth : 0;
+
+    let interestExtra = loan.interestExtra;
+    let applied = loan.lateInterestAppliedMonths ?? 0;
+    // Retard 15 % seulement après décaissement
+    if (
+      (loan.status === "En cours" || loan.status === "En retard") &&
+      loan.dueDate &&
+      today > loan.dueDate
+    ) {
+      const monthsLate = completeLateMonths(loan.dueDate, today);
+      const toApply = monthsLate - applied;
+      if (toApply > 0) {
+        for (let i = 0; i < toApply; i++) {
+          const capital = loanCapitalRemaining({
+            ...loan,
+            interestMonth1,
+            interestMonth2,
+            interestExtra,
+          });
+          interestExtra += Math.round(capital * lateRate);
+          applied += 1;
+        }
+      }
+    }
+
+    const totalDue =
+      loan.amount + interestMonth1 + interestMonth2 + interestExtra;
+    const rem = Math.max(0, totalDue - loan.repaid);
+
+    let status: Loan["status"] = loan.status;
+    if (loan.status === "En cours" || loan.status === "En retard") {
+      status =
+        rem <= 0
+          ? "Remboursé"
+          : loan.dueDate && today > loan.dueDate
+            ? "En retard"
+            : "En cours";
+    }
+
+    if (
+      interestMonth1 === loan.interestMonth1 &&
+      interestMonth2 === loan.interestMonth2 &&
+      interestExtra === loan.interestExtra &&
+      applied === (loan.lateInterestAppliedMonths ?? 0) &&
+      totalDue === loan.totalDue &&
+      loan.status === status
+    ) {
+      return loan;
+    }
+
+    changed += 1;
+    return {
+      ...loan,
+      interestMonth1,
+      interestMonth2,
+      interestExtra,
+      totalDue,
+      lateInterestAppliedMonths: applied,
+      status,
+    };
+  });
+
+  if (changed > 0) {
+    await writeCollectionForPeriod(period, "loans", next);
+  }
+  return changed;
 }
 
 export async function getMemberBalance(memberId: string) {
@@ -157,6 +414,7 @@ export async function getDashboardStats(periodId?: string) {
 
   // Rattrapage des cotisations déjà saisies sans écriture caisse
   await reconcileContributionCashEntries(resolvedPeriodId);
+  await reconcileLateLoanInterest(resolvedPeriodId);
 
   const [
     settings,

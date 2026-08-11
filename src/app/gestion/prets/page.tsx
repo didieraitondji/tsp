@@ -4,15 +4,29 @@ import { DeleteLoanButton } from "@/components/delete-loan-button";
 import { LoanApprovalActions } from "@/components/loan-approval-actions";
 import { PretsTontineFilter } from "@/components/prets-tontine-filter";
 import { listEnrolledForPeriod, usersRepo } from "@/lib/db/collections";
-import { loanRemaining, memberDisplayName } from "@/lib/db/domain";
+import {
+  countRecentUnpaidSessions,
+  loanRemaining,
+  loanWitnessesOf,
+  memberDisplayName,
+  reconcileLateLoanInterest,
+} from "@/lib/db/domain";
 import { listPeriods } from "@/lib/db/periods";
 import { DEFAULT_SETTINGS } from "@/lib/db/defaults";
+import { todayIsoLocal } from "@/lib/cotisations-report";
 import { readCollectionForPeriodId, readObjectForPeriodId } from "@/lib/db/store";
 import { formatDate, formatFcfa } from "@/lib/format";
 import { normalizeSearch } from "@/lib/search";
 import { canApproveLoans, canWriteGestion } from "@/lib/auth/permissions";
 import { requireGestionAccess } from "@/lib/auth/session";
-import type { Loan, LoanStatus, Repayment, User } from "@/lib/types";
+import type {
+  Loan,
+  LoanStatus,
+  Repayment,
+  User,
+  Week,
+  Contribution,
+} from "@/lib/types";
 
 function StatusPill({ status }: { status: LoanStatus }) {
   const styles =
@@ -69,8 +83,20 @@ function ApprovalProgress({
       </ul>
       {loan.witnessName && (
         <p className="pt-1 text-[11px] text-[var(--muted)]">
-          Témoin : <span className="text-[var(--navy)]">{loan.witnessName}</span>
+          Caution : <span className="text-[var(--navy)]">{loan.witnessName}</span>
           {loan.witnessPhone ? ` · ${loan.witnessPhone}` : ""}
+        </p>
+      )}
+      {loan.witnesses && loan.witnesses.length > 1 && (
+        <p className="text-[11px] text-[var(--muted)]">
+          + {loan.witnesses.length - 1} autre
+          {loan.witnesses.length > 2 ? "s" : ""} caution
+          {loan.witnesses.length > 2 ? "s" : ""}
+        </p>
+      )}
+      {loan.interestExtra > 0 && (
+        <p className="text-[11px] text-red-700">
+          Intérêt retard {formatFcfa(loan.interestExtra)}
         </p>
       )}
     </div>
@@ -101,6 +127,10 @@ export default async function PretsPage({
   const dateFrom = sp.du?.trim() || "";
   const dateTo = sp.au?.trim() || "";
 
+  if (period) {
+    await reconcileLateLoanInterest(period.id);
+  }
+
   const [members, users] = await Promise.all([
     period ? listEnrolledForPeriod(period.id) : Promise.resolve([]),
     usersRepo.all(),
@@ -114,21 +144,45 @@ export default async function PretsPage({
   const repaymentLoanIds = new Set(repayments.map((r) => r.loanId));
   const byId = new Map(members.map((m) => [m.id, m]));
   const usersById = new Map(users.map((u) => [u.id, u]));
+  const today = todayIsoLocal();
 
   const loanTontines = await Promise.all(
     periods.map(async (p) => {
-      const enrolled = await listEnrolledForPeriod(p.id);
-      const settings = await readObjectForPeriodId(p.id, "settings", DEFAULT_SETTINGS);
+      const [enrolled, settings, pWeeks, pContribs] = await Promise.all([
+        listEnrolledForPeriod(p.id),
+        readObjectForPeriodId(p.id, "settings", DEFAULT_SETTINGS),
+        readCollectionForPeriodId<Week>(p.id, "weeks"),
+        readCollectionForPeriodId<Contribution>(p.id, "contributions"),
+      ]);
       return {
         id: p.id,
         name: p.name,
         withdrawalFeeRate: settings.loanWithdrawalFeeRate,
+        interestRateMonthly: settings.interestRateMonthly,
+        interestRateExtra:
+          Math.abs(
+            (settings.interestRateExtra ?? DEFAULT_SETTINGS.interestRateExtra) -
+              0.015
+          ) < 1e-9
+            ? 0.15
+            : (settings.interestRateExtra ?? DEFAULT_SETTINGS.interestRateExtra),
+        loanMaxDurationMonths: settings.loanMaxDurationMonths,
+        loanSecondWitnessThreshold:
+          settings.loanSecondWitnessThreshold ??
+          DEFAULT_SETTINGS.loanSecondWitnessThreshold,
         members: enrolled
           .filter((m) => m.status === "Actif")
           .map((m) => ({
             id: m.id,
             lastName: m.lastName,
             firstName: m.firstName,
+            phone: m.phone,
+            unpaidRecent: countRecentUnpaidSessions(
+              m.id,
+              pWeeks,
+              pContribs,
+              today
+            ),
           })),
       };
     })
@@ -173,7 +227,8 @@ export default async function PretsPage({
             Prêts
           </h1>
           <p className="mt-2 max-w-xl text-[var(--muted)]">
-            Demande avec témoin, validation par tous les gestionnaires, puis décaissement.
+            Demande avec caution(s) du groupe, validation par les gestionnaires, puis
+            décaissement.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -310,6 +365,8 @@ export default async function PretsPage({
                         Boolean(l.disbursedAt) ||
                         l.status === "En cours" ||
                         l.status === "En retard";
+                      const witnesses = loanWitnessesOf(l);
+                      const needsCip = witnesses.some((w) => !w.isGroupMember);
 
                       return (
                         <tr
@@ -324,6 +381,18 @@ export default async function PretsPage({
                             <p className="text-[11px] text-[var(--muted)]">
                               {formatDate(l.date)} · échéance {formatDate(l.dueDate)}
                             </p>
+                            {witnesses.length > 0 && (
+                              <p className="mt-1 text-[11px] text-[var(--muted)]">
+                                Caution
+                                {witnesses.length > 1 ? "s" : ""} :{" "}
+                                {witnesses
+                                  .map(
+                                    (w) =>
+                                      `${w.name}${w.isGroupMember ? "" : " (ext.)"}`
+                                  )
+                                  .join(" · ")}
+                              </p>
+                            )}
                           </td>
                           <td className="px-3 py-3.5">
                             <p className="tabular-nums font-medium text-[var(--navy)]">
@@ -333,11 +402,16 @@ export default async function PretsPage({
                               frais retrait {formatFcfa(l.withdrawalFee || 0)}
                             </p>
                             <p className="text-[11px] tabular-nums text-[var(--muted)]">
-                              dû {formatFcfa(l.totalDue)}
+                              dû aujourd’hui {formatFcfa(l.totalDue)}
                               {l.status === "En cours" || l.status === "En retard"
                                 ? ` · reste ${formatFcfa(loanRemaining(l))}`
                                 : ""}
                             </p>
+                            {l.interestExtra > 0 && (
+                              <p className="text-[11px] tabular-nums text-red-700">
+                                dont retard {formatFcfa(l.interestExtra)}
+                              </p>
+                            )}
                           </td>
                           <td className="px-3 py-3.5">
                             <ApprovalProgress loan={l} usersById={usersById} />
@@ -351,6 +425,7 @@ export default async function PretsPage({
                                 periodId={period.id}
                                 loanId={l.id}
                                 canDecide={canDecide}
+                                needsCip={needsCip}
                               />
                               {canDelete ? (
                                 <DeleteLoanButton
