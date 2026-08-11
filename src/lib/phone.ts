@@ -31,5 +31,14 @@ export function phonesMatch(a: string, b: string): boolean {
   return Boolean(na && nb && na === nb);
 }
 
+/** Affichage lisible : +229 01 61 13 78 53 */
+export function formatBeninPhone(input: string): string {
+  const n = normalizePhone(input);
+  if (!n) return input.trim();
+  const local = n.slice(BENIN_PREFIX.length);
+  const chunks = local.match(/.{1,2}/g) ?? [local];
+  return `${BENIN_PREFIX} ${chunks.join(" ")}`;
+}
+
 export const beninPhoneSchemaMessage =
   "Numéro béninois requis : +229 suivi de exactement 10 chiffres";

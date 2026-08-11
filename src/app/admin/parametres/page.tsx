@@ -2,12 +2,14 @@ import Link from "next/link";
 import { ArrowRight, Scale } from "lucide-react";
 import { AdminSettingsForm } from "@/components/admin-settings-form";
 import { settingsRepo } from "@/lib/db/collections";
+import { resolveSettings } from "@/lib/db/defaults";
 import { listPeriods } from "@/lib/db/periods";
 import { requireRole } from "@/lib/auth/session";
 
 export default async function ParametresPage() {
   await requireRole(["SUPER_ADMIN"]);
-  const [s, periods] = await Promise.all([settingsRepo.get(), listPeriods()]);
+  const [raw, periods] = await Promise.all([settingsRepo.get(), listPeriods()]);
+  const s = resolveSettings(raw);
   const activeCount = periods.filter((p) => p.status === "active").length;
 
   return (

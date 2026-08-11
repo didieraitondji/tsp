@@ -49,6 +49,14 @@ export interface Settings {
   organizationName: string;
   /** Si true, déverrouiller une cotisation exige le mot de passe. */
   requirePasswordToUnlockContribution: boolean;
+  /** Numéro Mobile Money pour déposer les mises (1). */
+  depositPhone1: string;
+  /** Nom sous lequel le numéro 1 est enregistré. */
+  depositName1: string;
+  /** Numéro Mobile Money pour déposer les mises (2, optionnel). */
+  depositPhone2: string;
+  /** Nom sous lequel le numéro 2 est enregistré. */
+  depositName2: string;
 }
 
 /** Annuaire global — identité du membre (hors inscription à une tontine). */

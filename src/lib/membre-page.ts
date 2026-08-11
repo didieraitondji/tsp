@@ -6,6 +6,13 @@ import {
   type MemberProgress,
   type MemberTontineOption,
 } from "@/lib/db/domain";
+import { DEFAULT_SETTINGS, resolveSettings } from "@/lib/db/defaults";
+import { readObjectForPeriodId } from "@/lib/db/store";
+import {
+  depositSlotsFromSettings,
+  type DepositSlot,
+} from "@/lib/deposit";
+import type { Settings } from "@/lib/types";
 
 export type MembrePageContext = {
   sessionName: string;
@@ -13,6 +20,7 @@ export type MembrePageContext = {
   tontines: MemberTontineOption[];
   periodId: string | null;
   progress: MemberProgress | null;
+  depositSlots: DepositSlot[];
 };
 
 export async function loadMembreContext(
@@ -27,6 +35,7 @@ export async function loadMembreContext(
       tontines: [],
       periodId: null,
       progress: null,
+      depositSlots: [],
     };
   }
 
@@ -34,11 +43,22 @@ export async function loadMembreContext(
   const periodId = resolveMemberTontineId(tontines, requestedTontine);
   const progress = await getMemberProgress(memberId, periodId);
 
+  let depositSlots: DepositSlot[] = [];
+  if (periodId) {
+    const raw = await readObjectForPeriodId<Settings>(
+      periodId,
+      "settings",
+      DEFAULT_SETTINGS
+    );
+    depositSlots = depositSlotsFromSettings(resolveSettings(raw));
+  }
+
   return {
     sessionName: session.user.name,
     memberId,
     tontines,
     periodId,
     progress,
+    depositSlots,
   };
 }

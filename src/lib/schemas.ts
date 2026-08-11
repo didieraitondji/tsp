@@ -29,6 +29,18 @@ const beninPhoneOptional = z
     message: beninPhoneSchemaMessage,
   });
 
+/** Téléphone dépôt : vide autorisé, sinon +229 valide. */
+const depositPhoneField = z
+  .union([z.string(), z.literal(""), z.undefined(), z.null()])
+  .transform((v) => String(v ?? "").trim())
+  .superRefine((raw, ctx) => {
+    if (!raw) return;
+    if (!normalizePhone(raw)) {
+      ctx.addIssue({ code: "custom", message: beninPhoneSchemaMessage });
+    }
+  })
+  .transform((raw) => (raw ? normalizePhone(raw)! : ""));
+
 export const settingsSchema = z.object({
   interestRateMonthly: z.number().min(0),
   interestRateExtra: z.number().min(0),
@@ -44,6 +56,10 @@ export const settingsSchema = z.object({
   cashOpeningBalance: z.number(),
   organizationName: z.string().min(1),
   requirePasswordToUnlockContribution: z.boolean(),
+  depositPhone1: depositPhoneField,
+  depositName1: z.string().trim(),
+  depositPhone2: depositPhoneField,
+  depositName2: z.string().trim(),
 });
 
 export const createUserSchema = z.object({

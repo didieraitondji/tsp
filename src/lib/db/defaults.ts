@@ -15,4 +15,13 @@ export const DEFAULT_SETTINGS: Settings = {
   cashOpeningBalance: 0,
   organizationName: "Solidarité Plus",
   requirePasswordToUnlockContribution: true,
+  depositPhone1: "+2290161137853",
+  depositName1: "AGBLE VIDEHOU VENAS",
+  depositPhone2: "",
+  depositName2: "",
 };
+
+/** Fusionne un document settings partiel avec les valeurs par défaut. */
+export function resolveSettings(partial?: Partial<Settings> | null): Settings {
+  return { ...DEFAULT_SETTINGS, ...(partial ?? {}) };
+}

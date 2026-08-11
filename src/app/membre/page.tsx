@@ -1,4 +1,5 @@
 import { loadMembreContext } from "@/lib/membre-page";
+import { DepositNumbersCard } from "@/components/deposit-numbers-card";
 import { MembreAlert, MembreHero } from "@/components/membre-ui";
 import { MembreDashboard } from "@/components/membre-dashboard";
 
@@ -36,7 +37,7 @@ export default async function MembreOverviewPage({
     );
   }
 
-  const { progress, periodId } = ctx;
+  const { progress, periodId, depositSlots } = ctx;
   const q = periodId ? `?tontine=${encodeURIComponent(periodId)}` : "";
 
   return (
@@ -55,7 +56,10 @@ export default async function MembreOverviewPage({
           apparaîtront ici une fois l’inscription faite par le bureau.
         </MembreAlert>
       ) : (
-        <MembreDashboard progress={progress} periodQuery={q} />
+        <>
+          <DepositNumbersCard slots={depositSlots} />
+          <MembreDashboard progress={progress} periodQuery={q} />
+        </>
       )}
     </div>
   );

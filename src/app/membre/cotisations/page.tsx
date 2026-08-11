@@ -1,6 +1,7 @@
 import { formatFcfa } from "@/lib/format";
 import { contributionCountedAmount } from "@/lib/contribution-status";
 import { loadMembreContext } from "@/lib/membre-page";
+import { DepositNumbersCard } from "@/components/deposit-numbers-card";
 import { MembreCotisationsGrid } from "@/components/membre-cotisations-grid";
 import { MembreAlert, MembreEmpty, MembrePanel } from "@/components/membre-ui";
 
@@ -20,7 +21,7 @@ export default async function MembreCotisationsPage({
     );
   }
 
-  const { progress } = ctx;
+  const { progress, depositSlots } = ctx;
   const paidCount = progress.contributions.filter(
     (c) => contributionCountedAmount(c) > 0
   ).length;
@@ -46,20 +47,23 @@ export default async function MembreCotisationsPage({
           Vous n’êtes pas inscrit à cette tontine. Contactez le bureau pour l’inscription.
         </MembreAlert>
       ) : (
-        <MembrePanel
-          title="Séances"
-          description={`${paidCount} payée${paidCount === 1 ? "" : "s"} · ${progress.weeksTotal} séance${progress.weeksTotal === 1 ? "" : "s"}`}
-        >
-          {progress.weeks.length === 0 ? (
-            <MembreEmpty>Aucune séance planifiée pour le moment.</MembreEmpty>
-          ) : (
-            <MembreCotisationsGrid
-              weeks={progress.weeks}
-              contributions={progress.contributions}
-              weeklyTarget={progress.weeklyTarget}
-            />
-          )}
-        </MembrePanel>
+        <>
+          <DepositNumbersCard slots={depositSlots} />
+          <MembrePanel
+            title="Séances"
+            description={`${paidCount} payée${paidCount === 1 ? "" : "s"} · ${progress.weeksTotal} séance${progress.weeksTotal === 1 ? "" : "s"}`}
+          >
+            {progress.weeks.length === 0 ? (
+              <MembreEmpty>Aucune séance planifiée pour le moment.</MembreEmpty>
+            ) : (
+              <MembreCotisationsGrid
+                weeks={progress.weeks}
+                contributions={progress.contributions}
+                weeklyTarget={progress.weeklyTarget}
+              />
+            )}
+          </MembrePanel>
+        </>
       )}
     </div>
   );

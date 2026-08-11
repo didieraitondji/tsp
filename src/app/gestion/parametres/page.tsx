@@ -20,7 +20,7 @@ import { DeletePeriodButton } from "@/components/delete-period-button";
 import { AdminSettingsForm } from "@/components/admin-settings-form";
 import { PasswordConfirmButton } from "@/components/password-confirm-button";
 import { listPeriods } from "@/lib/db/periods";
-import { DEFAULT_SETTINGS } from "@/lib/db/defaults";
+import { DEFAULT_SETTINGS, resolveSettings } from "@/lib/db/defaults";
 import { getSelectedPeriodId, getStorageDiagnostics, readObjectForPeriodId } from "@/lib/db/store";
 import { formatDate, formatFcfa, formatPercent } from "@/lib/format";
 import { formatPeriodicity } from "@/lib/periodicity";
@@ -60,7 +60,9 @@ export default async function GestionParametresPage({
   const rulesPeriodId = sp.tontine?.trim() || activeId || periods[0]?.id || "";
   const rulesPeriod = periods.find((p) => p.id === rulesPeriodId) ?? null;
   const rulesSettings = rulesPeriod
-    ? await readObjectForPeriodId(rulesPeriod.id, "settings", DEFAULT_SETTINGS)
+    ? resolveSettings(
+        await readObjectForPeriodId(rulesPeriod.id, "settings", DEFAULT_SETTINGS)
+      )
     : DEFAULT_SETTINGS;
 
   const selectedPeriod = periods.find((p) => p.id === activeId) ?? null;

@@ -9,9 +9,11 @@ import {
   Percent,
   Scale,
   ShieldAlert,
+  Smartphone,
 } from "lucide-react";
 import { saveSettingsAction, type SaveSettingsState } from "@/app/actions";
 import { PasswordInput } from "@/components/password-input";
+import { PhoneInput } from "@/components/phone-input";
 import { Input, Label } from "@/components/ui";
 import { formatFcfa, formatPercent } from "@/lib/format";
 import type { Settings } from "@/lib/types";
@@ -174,6 +176,65 @@ export function AdminSettingsForm({
             </span>
           </span>
         </label>
+      </Section>
+
+      <Section
+        title="Dépôt des mises"
+        description="Numéros Mobile Money affichés aux membres pour verser leur cible."
+        icon={<Smartphone className="h-4 w-4" strokeWidth={1.75} />}
+      >
+        <div className="space-y-5">
+          <div className="rounded-2xl border border-[var(--line)] bg-[var(--cream)]/40 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+              Numéro 1
+            </p>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label>Téléphone</Label>
+                <PhoneInput
+                  name="depositPhone1"
+                  showIcon={false}
+                  defaultValue={settings.depositPhone1 || ""}
+                />
+              </div>
+              <div>
+                <Label>Nom d’enregistrement</Label>
+                <Input
+                  name="depositName1"
+                  defaultValue={settings.depositName1 || ""}
+                  placeholder="Ex. AGBLE VIDEHOU VENAS"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-[var(--line)] bg-[var(--cream)]/40 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+              Numéro 2 <span className="font-normal normal-case">(optionnel)</span>
+            </p>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label>Téléphone</Label>
+                <PhoneInput
+                  name="depositPhone2"
+                  showIcon={false}
+                  defaultValue={settings.depositPhone2 || ""}
+                />
+              </div>
+              <div>
+                <Label>Nom d’enregistrement</Label>
+                <Input
+                  name="depositName2"
+                  defaultValue={settings.depositName2 || ""}
+                  placeholder="Si un 2ᵉ numéro est utilisé"
+                />
+              </div>
+            </div>
+          </div>
+          <p className="text-xs text-[var(--muted)]">
+            Si un seul numéro est renseigné, le message membre parlera d’un numéro. Avec
+            deux numéros, le texte s’adapte automatiquement.
+          </p>
+        </div>
       </Section>
 
       <Section

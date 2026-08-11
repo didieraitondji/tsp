@@ -314,6 +314,10 @@ export async function saveSettingsAction(
     organizationName: String(formData.get("organizationName") || "Solidarité Plus"),
     requirePasswordToUnlockContribution:
       formData.get("requirePasswordToUnlockContribution") === "on",
+    depositPhone1: String(formData.get("depositPhone1") || ""),
+    depositName1: String(formData.get("depositName1") || ""),
+    depositPhone2: String(formData.get("depositPhone2") || ""),
+    depositName2: String(formData.get("depositName2") || ""),
   });
   if (!parsed.success) return { error: "Données invalides. Vérifiez les champs." };
 
@@ -334,6 +338,8 @@ export async function saveSettingsAction(
   revalidatePath("/gestion/parametres");
   revalidatePath("/gestion/cotisations");
   revalidatePath("/gestion/prets");
+  revalidatePath("/membre");
+  revalidatePath("/membre/cotisations");
   return { ok: true };
 }
 
