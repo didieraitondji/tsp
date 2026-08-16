@@ -62,6 +62,8 @@ export function computeLoanFigures(
     contractedMonths?: number;
     /** Mois déjà courus à 10 % (0–contracted). Défaut = contracted (forfait). */
     accruedMonths?: number;
+    /** Si false, intérêts à 0 (prêt sans intérêts). */
+    applyInterest?: boolean;
   }
 ): {
   withdrawalFee: number;
@@ -72,6 +74,7 @@ export function computeLoanFigures(
   accruedMonths: number;
 } {
   const withdrawalFeeOverride = opts?.withdrawalFeeOverride;
+  const applyInterest = opts?.applyInterest !== false;
   const contractedMonths = Math.min(
     2,
     Math.max(1, opts?.contractedMonths ?? 2)
@@ -84,9 +87,11 @@ export function computeLoanFigures(
     withdrawalFeeOverride != null && Number.isFinite(withdrawalFeeOverride)
       ? Math.max(0, Math.round(withdrawalFeeOverride))
       : Math.round(amount * settings.loanWithdrawalFeeRate);
-  const perMonth = Math.round(amount * settings.interestRateMonthly);
-  const interestMonth1 = accruedMonths >= 1 ? perMonth : 0;
-  const interestMonth2 = accruedMonths >= 2 ? perMonth : 0;
+  const perMonth = applyInterest
+    ? Math.round(amount * settings.interestRateMonthly)
+    : 0;
+  const interestMonth1 = applyInterest && accruedMonths >= 1 ? perMonth : 0;
+  const interestMonth2 = applyInterest && accruedMonths >= 2 ? perMonth : 0;
   const totalDue = amount + interestMonth1 + interestMonth2;
   return {
     withdrawalFee,
@@ -96,6 +101,86 @@ export function computeLoanFigures(
     contractedMonths,
     accruedMonths,
   };
+}
+
+/**
+ * Intérêts à une date de référence (ex. date de solde / remboursement).
+ * - 10 % / mois complet depuis la date du prêt (plafonné au contrat)
+ * - 15 % / mois de retard si la date est après l’échéance
+ */
+export function computeLoanInterestAsOf(
+  amount: number,
+  settings: Settings,
+  opts: {
+    loanDate: string;
+    dueDate: string;
+    asOfDate: string;
+    applyInterest?: boolean;
+    withdrawalFeeOverride?: number | null;
+    maxMonths?: number;
+  }
+): {
+  withdrawalFee: number;
+  interestMonth1: number;
+  interestMonth2: number;
+  interestExtra: number;
+  totalDue: number;
+  contractedMonths: number;
+  accruedMonths: number;
+  lateMonths: number;
+} {
+  const applyInterest = opts.applyInterest !== false;
+  const maxMonths = opts.maxMonths ?? settings.loanMaxDurationMonths ?? 2;
+  const contractedMonths = loanContractedMonths(
+    opts.loanDate,
+    opts.dueDate,
+    maxMonths
+  );
+  const accruedMonths = applyInterest
+    ? loanAccruedNormalMonths(opts.loanDate, opts.asOfDate, contractedMonths)
+    : 0;
+  const figures = computeLoanFigures(amount, settings, {
+    withdrawalFeeOverride: opts.withdrawalFeeOverride,
+    contractedMonths,
+    accruedMonths,
+    applyInterest,
+  });
+
+  let interestExtra = 0;
+  let lateMonths = 0;
+  if (
+    applyInterest &&
+    opts.dueDate &&
+    opts.asOfDate > opts.dueDate
+  ) {
+    const rawLate =
+      settings.interestRateExtra ?? DEFAULT_SETTINGS.interestRateExtra;
+    const lateRate = Math.abs(rawLate - 0.015) < 1e-9 ? 0.15 : rawLate;
+    lateMonths = completeLateMonths(opts.dueDate, opts.asOfDate);
+    for (let i = 0; i < lateMonths; i++) {
+      interestExtra += Math.round(amount * lateRate);
+    }
+  }
+
+  return {
+    withdrawalFee: figures.withdrawalFee,
+    interestMonth1: figures.interestMonth1,
+    interestMonth2: figures.interestMonth2,
+    interestExtra,
+    totalDue:
+      amount +
+      figures.interestMonth1 +
+      figures.interestMonth2 +
+      interestExtra,
+    contractedMonths,
+    accruedMonths,
+    lateMonths,
+  };
+}
+
+/** true sauf si le prêt a explicitement désactivé les intérêts. */
+export function loanAppliesInterest(loan: Pick<Loan, "applyInterest">): boolean {
+  return loan.applyInterest !== false;
 }
 
 export function loanRemaining(loan: Loan): number {
@@ -252,6 +337,10 @@ export async function reconcileLateLoanInterest(periodId: string): Promise<numbe
       loan.status === "En attente";
     if (!isOpen) return loan;
 
+    // Prêt historique déjà soldé : ne jamais recalculer intérêts / retard.
+    if (loan.alreadySettled) return loan;
+
+    const applyInterest = loanAppliesInterest(loan);
     const startDate =
       loan.status === "En attente"
         ? loan.date
@@ -261,15 +350,19 @@ export async function reconcileLateLoanInterest(periodId: string): Promise<numbe
       loan.dueDate,
       maxMonths
     );
-    const accrued = loanAccruedNormalMonths(startDate, today, contracted);
-    const perMonth = Math.round(loan.amount * monthlyRate);
-    const interestMonth1 = accrued >= 1 ? perMonth : 0;
-    const interestMonth2 = accrued >= 2 ? perMonth : 0;
+    const accrued = applyInterest
+      ? loanAccruedNormalMonths(startDate, today, contracted)
+      : 0;
+    const perMonth = applyInterest
+      ? Math.round(loan.amount * monthlyRate)
+      : 0;
+    const interestMonth1 = applyInterest && accrued >= 1 ? perMonth : 0;
+    const interestMonth2 = applyInterest && accrued >= 2 ? perMonth : 0;
 
-    let interestExtra = loan.interestExtra;
-    let applied = loan.lateInterestAppliedMonths ?? 0;
+    let interestExtra = applyInterest ? loan.interestExtra : 0;
+    let applied = applyInterest ? loan.lateInterestAppliedMonths ?? 0 : 0;
     // Retard 15 % dès que l’échéance est dépassée (y compris En attente : dû aujourd’hui)
-    if (loan.dueDate && today > loan.dueDate) {
+    if (applyInterest && loan.dueDate && today > loan.dueDate) {
       const monthsLate = completeLateMonths(loan.dueDate, today);
       const toApply = monthsLate - applied;
       if (toApply > 0) {

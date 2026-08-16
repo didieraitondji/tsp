@@ -166,8 +166,46 @@ export const loanInputSchema = z.object({
   /** Frais de retrait en FCFA (optionnel ; défaut = taux paramètres). */
   withdrawalFee: z.number().min(0).optional(),
   dueDate: z.string().min(1),
+  /** Intérêts contrat + retard. Défaut true. */
+  applyInterest: z.boolean().default(true),
+  /** Déjà soldé (import historique). */
+  alreadySettled: z.boolean().default(false),
+  settledAt: z.string().optional(),
+  /** Tranches déjà payées (prêt encore ouvert). */
+  historicalRepayments: z
+    .array(
+      z.object({
+        date: z.string().min(1),
+        amount: z.number().positive(),
+      })
+    )
+    .default([]),
   witnesses: z.array(loanWitnessSchema).min(1, "Au moins une caution"),
   notes: z.string().optional(),
+});
+
+/** Édition d’un prêt existant (emprunteur inchangé). */
+export const updateLoanSchema = z.object({
+  loanId: z.string().min(1),
+  date: z.string().min(1),
+  amount: z.number().positive(),
+  withdrawalFee: z.number().min(0),
+  dueDate: z.string().min(1),
+  applyInterest: z.boolean(),
+  interestExtra: z.number().min(0),
+  markSettled: z.boolean().default(false),
+  settledAt: z.string().optional(),
+  notes: z.string().optional(),
+  repayments: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        date: z.string().min(1),
+        amount: z.number().positive(),
+      })
+    )
+    .default([]),
+  witnesses: z.array(loanWitnessSchema).min(1, "Au moins une caution"),
 });
 
 export const repaymentInputSchema = z.object({

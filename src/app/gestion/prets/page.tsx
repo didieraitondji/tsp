@@ -1,6 +1,7 @@
 import { Handshake, Wallet, AlertCircle, Clock } from "lucide-react";
 import { CreateLoanModal } from "@/components/create-loan-modal";
 import { DeleteLoanButton } from "@/components/delete-loan-button";
+import { EditLoanModal } from "@/components/edit-loan-modal";
 import { LoanApprovalActions } from "@/components/loan-approval-actions";
 import { PretsTontineFilter } from "@/components/prets-tontine-filter";
 import { listEnrolledForPeriod, usersRepo } from "@/lib/db/collections";
@@ -62,17 +63,43 @@ function ApprovalProgress({
   const approved = new Set(
     approvals.filter((a) => a.decision === "approved").map((a) => a.userId)
   );
+  const quorumComplete = required.every((id) => approved.has(id));
+  const superAdminApproval = approvals.find((a) => {
+    if (a.decision !== "approved") return false;
+    return usersById.get(a.userId)?.role === "SUPER_ADMIN";
+  });
+  const forcedBySuperAdmin =
+    Boolean(superAdminApproval) &&
+    !quorumComplete &&
+    loan.status !== "En attente" &&
+    loan.status !== "Refusé";
+
   return (
     <div className="space-y-1">
-      <p className="text-[11px] text-[var(--muted)]">
-        {approved.size}/{required.length} validation{required.length > 1 ? "s" : ""}
-      </p>
+      {forcedBySuperAdmin ? (
+        <p className="text-[11px] font-medium text-emerald-800">
+          Quorum validé par super admin
+          {superAdminApproval?.userName
+            ? ` (${superAdminApproval.userName})`
+            : ""}
+        </p>
+      ) : (
+        <p className="text-[11px] text-[var(--muted)]">
+          {approved.size}/{required.length} validation
+          {required.length > 1 ? "s" : ""}
+        </p>
+      )}
       <ul className="space-y-0.5">
         {required.map((id) => {
           const u = usersById.get(id);
           const a = approvals.find((x) => x.userId === id);
-          const mark =
-            a?.decision === "approved" ? "✓" : a?.decision === "rejected" ? "✗" : "·";
+          const mark = forcedBySuperAdmin
+            ? "✓"
+            : a?.decision === "approved"
+              ? "✓"
+              : a?.decision === "rejected"
+                ? "✗"
+                : "·";
           return (
             <li key={id} className="truncate text-[11px] text-[var(--navy)]">
               <span className="mr-1 font-semibold text-[var(--muted)]">{mark}</span>
@@ -142,9 +169,19 @@ export default async function PretsPage({
     ? await readCollectionForPeriodId<Repayment>(period.id, "repayments")
     : [];
   const repaymentLoanIds = new Set(repayments.map((r) => r.loanId));
+  const repaymentsByLoan = new Map<string, Repayment[]>();
+  for (const r of repayments) {
+    const list = repaymentsByLoan.get(r.loanId) ?? [];
+    list.push(r);
+    repaymentsByLoan.set(r.loanId, list);
+  }
   const byId = new Map(members.map((m) => [m.id, m]));
   const usersById = new Map(users.map((u) => [u.id, u]));
   const today = todayIsoLocal();
+
+  const periodSettings = period
+    ? await readObjectForPeriodId(period.id, "settings", DEFAULT_SETTINGS)
+    : DEFAULT_SETTINGS;
 
   const loanTontines = await Promise.all(
     periods.map(async (p) => {
@@ -407,6 +444,19 @@ export default async function PretsPage({
                                 ? ` · reste ${formatFcfa(loanRemaining(l))}`
                                 : ""}
                             </p>
+                            {l.applyInterest === false && (
+                              <p className="text-[11px] font-medium text-emerald-800">
+                                Sans intérêts
+                              </p>
+                            )}
+                            {l.alreadySettled && (
+                              <p className="text-[11px] font-medium text-emerald-800">
+                                Solde historique
+                                {l.settledAt
+                                  ? ` · ${formatDate(l.settledAt)}`
+                                  : ""}
+                              </p>
+                            )}
                             {l.interestExtra > 0 && (
                               <p className="text-[11px] tabular-nums text-red-700">
                                 dont retard {formatFcfa(l.interestExtra)}
@@ -426,7 +476,67 @@ export default async function PretsPage({
                                 loanId={l.id}
                                 canDecide={canDecide}
                                 needsCip={needsCip}
+                                isSuperAdmin={session.user.role === "SUPER_ADMIN"}
                               />
+                              {canWrite && l.status !== "Refusé" ? (
+                                <EditLoanModal
+                                  periodId={period.id}
+                                  members={members
+                                    .filter((x) => x.status === "Actif")
+                                    .map((x) => ({
+                                      id: x.id,
+                                      lastName: x.lastName,
+                                      firstName: x.firstName,
+                                      phone: x.phone,
+                                    }))}
+                                  interestRateMonthly={
+                                    periodSettings.interestRateMonthly
+                                  }
+                                  loanMaxDurationMonths={
+                                    periodSettings.loanMaxDurationMonths || 2
+                                  }
+                                  loanSecondWitnessThreshold={
+                                    periodSettings.loanSecondWitnessThreshold ??
+                                    DEFAULT_SETTINGS.loanSecondWitnessThreshold
+                                  }
+                                  loan={{
+                                    id: l.id,
+                                    memberId: l.memberId,
+                                    memberLabel: m
+                                      ? memberDisplayName(m)
+                                      : l.memberId,
+                                    date: l.date,
+                                    dueDate: l.dueDate,
+                                    amount: l.amount,
+                                    withdrawalFee: l.withdrawalFee || 0,
+                                    applyInterest: l.applyInterest !== false,
+                                    interestExtra: l.interestExtra || 0,
+                                    interestMonth1: l.interestMonth1 || 0,
+                                    interestMonth2: l.interestMonth2 || 0,
+                                    totalDue: l.totalDue,
+                                    repaid: l.repaid,
+                                    status: l.status,
+                                    alreadySettled: l.alreadySettled,
+                                    settledAt: l.settledAt,
+                                    notes: l.notes,
+                                    witnesses: loanWitnessesOf(l),
+                                    repayments: (
+                                      repaymentsByLoan.get(l.id) ?? []
+                                    )
+                                      .slice()
+                                      .sort((a, b) =>
+                                        a.date.localeCompare(b.date)
+                                      )
+                                      .map((r) => ({
+                                        id: r.id,
+                                        date: r.date,
+                                        amount: r.amount,
+                                      })),
+                                    pendingHistoricalRepayments:
+                                      l.pendingHistoricalRepayments,
+                                  }}
+                                />
+                              ) : null}
                               {canDelete ? (
                                 <DeleteLoanButton
                                   loanId={l.id}

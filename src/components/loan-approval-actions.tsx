@@ -9,12 +9,14 @@ export function LoanApprovalActions({
   loanId,
   canDecide,
   needsCip = false,
+  isSuperAdmin = false,
 }: {
   periodId: string;
   loanId: string;
   canDecide: boolean;
   /** True si une caution est hors tontine. */
   needsCip?: boolean;
+  isSuperAdmin?: boolean;
 }) {
   const [pending, start] = useTransition();
   const [letterSigned, setLetterSigned] = useState(false);
@@ -91,6 +93,11 @@ export function LoanApprovalActions({
           Refuser
         </button>
       </div>
+      {isSuperAdmin && (
+        <p className="text-[10px] leading-snug text-[var(--muted)]">
+          En super admin, Approuver valide tout le quorum d’un coup.
+        </p>
+      )}
     </div>
   );
 }

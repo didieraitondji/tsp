@@ -139,6 +139,12 @@ export function CreateLoanModal({
   const [witness2Mode, setWitness2Mode] = useState<"member" | "external">("member");
   const [witness2Id, setWitness2Id] = useState("");
   const [witness2Name, setWitness2Name] = useState("");
+  const [applyInterest, setApplyInterest] = useState(true);
+  const [alreadySettled, setAlreadySettled] = useState(false);
+  const [settledAt, setSettledAt] = useState("");
+  const [histRepays, setHistRepays] = useState<{ date: string; amount: string }[]>(
+    []
+  );
   const [error, setError] = useState<string | null>(null);
 
   const selected = useMemo(
@@ -176,28 +182,39 @@ export function CreateLoanModal({
     loanDate && dueDate
       ? contractedMonths(loanDate, dueDate, maxMonths)
       : null;
+  const settleAsOf =
+    alreadySettled && settledAt ? settledAt : today;
   const accruedMonths =
     loanDate && contractMonths != null
-      ? accruedNormalMonths(loanDate, today, contractMonths)
+      ? accruedNormalMonths(loanDate, settleAsOf, contractMonths)
       : null;
   const monthsLate =
     dueDate && Number.isFinite(amountNum) && amountNum > 0
-      ? lateMonthsSince(dueDate, today)
+      ? lateMonthsSince(dueDate, settleAsOf)
       : 0;
   const interestPerMonth =
-    Number.isFinite(amountNum) && amountNum > 0
+    applyInterest && Number.isFinite(amountNum) && amountNum > 0
       ? Math.round(amountNum * interestRate)
-      : null;
-  const interestAccrued =
-    interestPerMonth != null && accruedMonths != null
-      ? interestPerMonth * accruedMonths
-      : null;
+      : applyInterest
+        ? null
+        : 0;
   const interestAtDue =
-    interestPerMonth != null && contractMonths != null
-      ? interestPerMonth * contractMonths
-      : null;
+    !applyInterest
+      ? 0
+      : interestPerMonth != null && contractMonths != null
+        ? interestPerMonth * contractMonths
+        : null;
+  const interestAccrued =
+    !applyInterest
+      ? 0
+      : interestPerMonth != null && accruedMonths != null
+        ? interestPerMonth * accruedMonths
+        : null;
   const lateInterest =
-    monthsLate > 0 && Number.isFinite(amountNum) && amountNum > 0
+    applyInterest &&
+    monthsLate > 0 &&
+    Number.isFinite(amountNum) &&
+    amountNum > 0
       ? monthsLate * Math.round(amountNum * lateRate)
       : 0;
   const totalDueNow =
@@ -208,7 +225,17 @@ export function CreateLoanModal({
     interestAtDue != null && Number.isFinite(amountNum)
       ? amountNum + interestAtDue
       : null;
-  const pastDue = monthsLate > 0;
+  const histTotal = histRepays.reduce((s, r) => {
+    const n = Number(String(r.amount).replace(",", "."));
+    return s + (Number.isFinite(n) && n > 0 ? Math.round(n) : 0);
+  }, 0);
+  const previewDue = totalDueNow;
+  const previewRemaining =
+    previewDue != null && histTotal > 0 && !alreadySettled
+      ? Math.max(0, previewDue - histTotal)
+      : null;
+  const pastDue =
+    monthsLate > 0 && !alreadySettled && histRepays.length === 0;
 
   const borrowerAlert = members.find((m) => m.id === memberId);
   const miseBienWarn = (borrowerAlert?.unpaidRecent ?? 0) >= 2;
@@ -238,6 +265,10 @@ export function CreateLoanModal({
     setWitness2Mode("member");
     setWitness2Id("");
     setWitness2Name("");
+    setApplyInterest(true);
+    setAlreadySettled(false);
+    setSettledAt("");
+    setHistRepays([]);
     setError(null);
   }
 
@@ -303,12 +334,37 @@ export function CreateLoanModal({
                   return;
                 }
               }
+              if (!alreadySettled && histRepays.length > 0) {
+                for (const row of histRepays) {
+                  const n = Number(String(row.amount).replace(",", "."));
+                  if (!row.date || !Number.isFinite(n) || n <= 0) {
+                    setError("Chaque tranche historique doit avoir une date et un montant.");
+                    return;
+                  }
+                  if (loanDate && row.date < loanDate) {
+                    setError("Une tranche ne peut pas être antérieure à la date du prêt.");
+                    return;
+                  }
+                }
+                if (previewDue != null && histTotal >= previewDue) {
+                  setError(
+                    "Le total des tranches couvre déjà le dû : utilisez plutôt « Déjà soldé »."
+                  );
+                  return;
+                }
+              }
               fd.set("witness1Mode", "member");
               fd.set("witness1MemberId", witness1Id);
               if (needTwo) {
                 fd.set("witness2Mode", witness2Mode);
                 if (witness2Mode === "member") {
                   fd.set("witness2MemberId", witness2Id);
+                }
+              }
+              if (!alreadySettled) {
+                for (const row of histRepays) {
+                  fd.append("histRepayDate", row.date);
+                  fd.append("histRepayAmount", row.amount);
                 }
               }
               await createLoanAction(fd);
@@ -465,6 +521,160 @@ export function CreateLoanModal({
                     </div>
                   </div>
 
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--line)] bg-white px-4 py-3">
+                    <input
+                      type="checkbox"
+                      name="applyInterest"
+                      value="on"
+                      checked={applyInterest}
+                      onChange={(e) => setApplyInterest(e.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-[var(--line)] text-[var(--navy)] accent-[#1D2D50]"
+                    />
+                    <span>
+                      <span className="block text-sm font-semibold text-[var(--navy)]">
+                        Intérêts appliqués
+                      </span>
+                      <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                        Coché : intérêts contrat et retard selon les règles.
+                        Décoché : prêt sans intérêts (ex. administrateurs).
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--line)] bg-white px-4 py-3">
+                    <input
+                      type="checkbox"
+                      name="alreadySettled"
+                      value="on"
+                      checked={alreadySettled}
+                      onChange={(e) => {
+                        const on = e.target.checked;
+                        setAlreadySettled(on);
+                        if (on && !settledAt) {
+                          setSettledAt(dueDate || loanDate || "");
+                        }
+                      }}
+                      className="mt-1 h-4 w-4 rounded border-[var(--line)] text-[var(--navy)] accent-[#1D2D50]"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-[var(--navy)]">
+                        Déjà soldé (prêt historique)
+                      </span>
+                      <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                        Pour les prêts papier déjà remboursés : à l’approbation,
+                        le prêt passe directement en « Remboursé », sans retard
+                        ni intérêts de pénalité.
+                      </span>
+                      {alreadySettled && (
+                        <div className="mt-3">
+                          <Label>Date du solde</Label>
+                          <Input
+                            name="settledAt"
+                            type="date"
+                            required={alreadySettled}
+                            value={settledAt}
+                            className={fieldClass}
+                            onChange={(e) => setSettledAt(e.target.value)}
+                          />
+                        </div>
+                      )}
+                    </span>
+                  </label>
+
+                  {!alreadySettled && (
+                    <div className="rounded-xl border border-[var(--line)] bg-white px-4 py-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-[var(--navy)]">
+                            Tranches déjà versées
+                          </p>
+                          <p className="mt-0.5 text-xs text-[var(--muted)]">
+                            Pour un prêt encore ouvert avec des remboursements
+                            papier déjà reçus. À l’approbation, ces tranches sont
+                            enregistrées automatiquement.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setHistRepays((rows) => [
+                              ...rows,
+                              { date: dueDate || loanDate || "", amount: "" },
+                            ])
+                          }
+                          className="rounded-full border border-[var(--line)] px-3 py-1.5 text-xs font-semibold text-[var(--navy)] transition hover:bg-[var(--cream)]"
+                        >
+                          + Ajouter une tranche
+                        </button>
+                      </div>
+                      {histRepays.length > 0 && (
+                        <div className="mt-3 space-y-2">
+                          {histRepays.map((row, i) => (
+                            <div
+                              key={i}
+                              className="grid grid-cols-[1fr_1fr_auto] gap-2"
+                            >
+                              <Input
+                                type="date"
+                                value={row.date}
+                                className={fieldClass}
+                                onChange={(e) => {
+                                  const date = e.target.value;
+                                  setHistRepays((rows) =>
+                                    rows.map((r, j) =>
+                                      j === i ? { ...r, date } : r
+                                    )
+                                  );
+                                }}
+                              />
+                              <Input
+                                type="number"
+                                min={1}
+                                placeholder="Montant"
+                                value={row.amount}
+                                className={`${fieldClass} tabular-nums`}
+                                onChange={(e) => {
+                                  const amount = e.target.value;
+                                  setHistRepays((rows) =>
+                                    rows.map((r, j) =>
+                                      j === i ? { ...r, amount } : r
+                                    )
+                                  );
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setHistRepays((rows) =>
+                                    rows.filter((_, j) => j !== i)
+                                  )
+                                }
+                                className="rounded-xl border border-[var(--line)] px-2.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                              >
+                                Retirer
+                              </button>
+                            </div>
+                          ))}
+                          <p className="text-[11px] text-[var(--muted)]">
+                            Total versé :{" "}
+                            <strong className="text-[var(--navy)]">
+                              {formatFcfa(histTotal)}
+                            </strong>
+                            {previewRemaining != null ? (
+                              <>
+                                {" "}
+                                · reste estimé{" "}
+                                <strong className="text-[var(--navy)]">
+                                  {formatFcfa(previewRemaining)}
+                                </strong>
+                              </>
+                            ) : null}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-gradient-to-br from-white to-[var(--cream)]/70">
                     <div className="flex items-start gap-3 px-4 py-3.5">
                       <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[var(--navy)]/90 text-[#FFCD79]">
@@ -487,7 +697,51 @@ export function CreateLoanModal({
                           </p>
                         </div>
                         <div className="border-t border-[var(--line)]/70 pt-2 text-[12px] leading-relaxed text-[var(--muted)]">
-                          {contractMonths != null ? (
+                          {alreadySettled ? (
+                            <>
+                              Solde au {settledAt || "—"}:{" "}
+                              {applyInterest ? (
+                                <>
+                                  {accruedMonths ?? 0} mois ×{" "}
+                                  {formatPercent(interestRate)}
+                                  {interestAccrued != null
+                                    ? ` = ${formatFcfa(interestAccrued)}`
+                                    : ""}
+                                  {lateInterest > 0
+                                    ? ` + retard ${formatFcfa(lateInterest)}`
+                                    : ""}
+                                </>
+                              ) : (
+                                "sans intérêts"
+                              )}
+                              {totalDueNow != null ? (
+                                <>
+                                  {" "}
+                                  · dû{" "}
+                                  <strong className="text-[var(--navy)]">
+                                    {formatFcfa(totalDueNow)}
+                                  </strong>
+                                </>
+                              ) : null}
+                              . À l’approbation →{" "}
+                              <strong className="text-emerald-800">Remboursé</strong>.
+                            </>
+                          ) : !applyInterest ? (
+                            <>
+                              Aucun intérêt : le dû reste le capital
+                              {Number.isFinite(amountNum) && amountNum > 0 ? (
+                                <>
+                                  {" "}
+                                  (
+                                  <strong className="text-[var(--navy)]">
+                                    {formatFcfa(amountNum)}
+                                  </strong>
+                                  )
+                                </>
+                              ) : null}
+                              . Les frais de retrait restent dus.
+                            </>
+                          ) : contractMonths != null ? (
                             <>
                               Contrat : {contractMonths} mois ×{" "}
                               {formatPercent(interestRate)}

@@ -9,8 +9,10 @@ import {
   applyLatePenaltiesForWeek,
   CASH_ORIGIN_LOAN,
   CASH_ORIGIN_PENALTY,
+  CASH_ORIGIN_REPAYMENT,
   completeLateMonths,
   computeLoanFigures,
+  computeLoanInterestAsOf,
   loanAccruedNormalMonths,
   loanContractedMonths,
   loanRemaining,
@@ -41,6 +43,7 @@ import {
   penaltyInputSchema,
   repaymentInputSchema,
   settingsSchema,
+  updateLoanSchema,
   updateUserSchema,
   weekInputSchema,
 } from "@/lib/schemas";
@@ -1052,12 +1055,30 @@ export async function createLoanAction(formData: FormData) {
   const w2 = parseWitness("witness2");
   const witnesses = [w1, w2].filter(Boolean) as LoanWitness[];
 
+  const histDates = formData.getAll("histRepayDate").map((v) => String(v).trim());
+  const histAmounts = formData
+    .getAll("histRepayAmount")
+    .map((v) => Number(String(v).replace(",", ".")));
+  const historicalRepayments: { date: string; amount: number }[] = [];
+  for (let i = 0; i < Math.max(histDates.length, histAmounts.length); i++) {
+    const date = histDates[i] || "";
+    const amount = histAmounts[i];
+    if (!date && !(Number.isFinite(amount) && amount > 0)) continue;
+    if (!date || !Number.isFinite(amount) || amount <= 0) return;
+    historicalRepayments.push({ date, amount: Math.round(amount) });
+  }
+  historicalRepayments.sort((a, b) => a.date.localeCompare(b.date));
+
   const parsed = loanInputSchema.safeParse({
     memberId: formData.get("memberId"),
     date: formData.get("date"),
     amount: Number(formData.get("amount")),
     withdrawalFee: Number.isFinite(feeParsed) ? Math.max(0, feeParsed) : 0,
     dueDate: formData.get("dueDate"),
+    applyInterest: formData.get("applyInterest") === "on",
+    alreadySettled: formData.get("alreadySettled") === "on",
+    settledAt: String(formData.get("settledAt") || "").trim() || undefined,
+    historicalRepayments,
     witnesses,
     notes: formData.get("notes") || undefined,
   });
@@ -1134,34 +1155,90 @@ export async function createLoanAction(formData: FormData) {
     maxMonths
   );
   const today = todayIsoLocal();
-  const figures = computeLoanFigures(parsed.data.amount, settings, {
-    withdrawalFeeOverride: parsed.data.withdrawalFee ?? 0,
-    contractedMonths: contracted,
-    accruedMonths: loanAccruedNormalMonths(
-      parsed.data.date,
-      today,
-      contracted
-    ),
-  });
+  const applyInterest = parsed.data.applyInterest !== false;
+  const alreadySettled = parsed.data.alreadySettled === true;
+  const histRepays = alreadySettled
+    ? []
+    : parsed.data.historicalRepayments ?? [];
+  const histTotal = histRepays.reduce((s, r) => s + r.amount, 0);
+  const settledAt =
+    alreadySettled
+      ? parsed.data.settledAt || parsed.data.dueDate || parsed.data.date
+      : undefined;
 
-  const rawLate =
-    settings.interestRateExtra ?? DEFAULT_SETTINGS.interestRateExtra;
-  const lateRate = Math.abs(rawLate - 0.015) < 1e-9 ? 0.15 : rawLate;
+  // Import historique (soldé ou tranches) : pas de rattrapage d’intérêts de retard.
+  const isHistoricalImport = alreadySettled || histRepays.length > 0;
+
+  let figures: ReturnType<typeof computeLoanFigures>;
   let interestExtra = 0;
   let lateApplied = 0;
-  if (parsed.data.dueDate && today > parsed.data.dueDate) {
-    const monthsLate = completeLateMonths(parsed.data.dueDate, today);
-    // Aucun remboursement encore → capital = montant du prêt
-    for (let i = 0; i < monthsLate; i++) {
-      interestExtra += Math.round(parsed.data.amount * lateRate);
-      lateApplied += 1;
+
+  if (alreadySettled && settledAt) {
+    // Intérêts calculés jusqu’à la date de solde (pas jusqu’à l’échéance max).
+    const asOf = computeLoanInterestAsOf(parsed.data.amount, settings, {
+      loanDate: parsed.data.date,
+      dueDate: parsed.data.dueDate,
+      asOfDate: settledAt,
+      applyInterest,
+      withdrawalFeeOverride: parsed.data.withdrawalFee ?? 0,
+      maxMonths,
+    });
+    figures = {
+      withdrawalFee: asOf.withdrawalFee,
+      interestMonth1: asOf.interestMonth1,
+      interestMonth2: asOf.interestMonth2,
+      totalDue:
+        parsed.data.amount + asOf.interestMonth1 + asOf.interestMonth2,
+      contractedMonths: asOf.contractedMonths,
+      accruedMonths: asOf.accruedMonths,
+    };
+    interestExtra = asOf.interestExtra;
+    lateApplied = asOf.lateMonths;
+  } else {
+    figures = computeLoanFigures(parsed.data.amount, settings, {
+      withdrawalFeeOverride: parsed.data.withdrawalFee ?? 0,
+      contractedMonths: contracted,
+      accruedMonths: loanAccruedNormalMonths(
+        parsed.data.date,
+        today,
+        contracted
+      ),
+      applyInterest,
+    });
+
+    const rawLate =
+      settings.interestRateExtra ?? DEFAULT_SETTINGS.interestRateExtra;
+    const lateRate = Math.abs(rawLate - 0.015) < 1e-9 ? 0.15 : rawLate;
+    if (
+      !isHistoricalImport &&
+      applyInterest &&
+      parsed.data.dueDate &&
+      today > parsed.data.dueDate
+    ) {
+      const monthsLate = completeLateMonths(parsed.data.dueDate, today);
+      for (let i = 0; i < monthsLate; i++) {
+        interestExtra += Math.round(parsed.data.amount * lateRate);
+        lateApplied += 1;
+      }
+    } else if (
+      isHistoricalImport &&
+      !alreadySettled &&
+      applyInterest &&
+      parsed.data.dueDate &&
+      today > parsed.data.dueDate
+    ) {
+      lateApplied = completeLateMonths(parsed.data.dueDate, today);
     }
   }
+
   const totalDue =
     parsed.data.amount +
     figures.interestMonth1 +
     figures.interestMonth2 +
     interestExtra;
+
+  if (histTotal >= totalDue && histTotal > 0) return;
+  if (histRepays.some((r) => r.date < parsed.data.date)) return;
 
   const year = settings.year;
   const existing = await readCollectionForPeriodId<Loan>(periodId, "loans");
@@ -1184,6 +1261,11 @@ export async function createLoanAction(formData: FormData) {
     docsChecklist: { letterSigned: false, cipVerified: false },
     lateInterestAppliedMonths: lateApplied,
     dueDate: parsed.data.dueDate,
+    applyInterest,
+    alreadySettled: alreadySettled || undefined,
+    settledAt,
+    pendingHistoricalRepayments:
+      histRepays.length > 0 ? histRepays : undefined,
     interestMonth1: figures.interestMonth1,
     interestMonth2: figures.interestMonth2,
     interestExtra,
@@ -1252,7 +1334,10 @@ export async function decideLoanAction(formData: FormData) {
     userName: session.user.name,
     decision,
     at: new Date().toISOString(),
-    note,
+    note:
+      decision === "approved" && session.user.role === "SUPER_ADMIN"
+        ? note || "Approbation super admin — quorum complet"
+        : note,
   });
 
   const docsChecklist = {
@@ -1283,11 +1368,86 @@ export async function decideLoanAction(formData: FormData) {
   const approvedIds = new Set(
     approvals.filter((a) => a.decision === "approved").map((a) => a.userId)
   );
-  const allApproved = required.every((id) => approvedIds.has(id));
+  // Super admin : un seul avis d’accord suffit pour tout le quorum.
+  const allApproved =
+    session.user.role === "SUPER_ADMIN" ||
+    required.every((id) => approvedIds.has(id));
 
   if (allApproved) {
     const now = new Date().toISOString();
-    next = { ...next, status: "En cours", disbursedAt: now };
+    const settled = Boolean(loan.alreadySettled);
+    const settleDate = loan.settledAt || loan.dueDate || loan.date;
+    const hist = [...(loan.pendingHistoricalRepayments ?? [])].sort((a, b) =>
+      a.date.localeCompare(b.date)
+    );
+    const todayIso = todayIsoLocal();
+
+    let repaidRunning = 0;
+    let interestPaidRunning = 0;
+    const interestsTotal =
+      loan.interestMonth1 + loan.interestMonth2 + loan.interestExtra;
+    const newRepaymentRows: Repayment[] = [];
+
+    if (settled) {
+      const repaidAmount = loan.totalDue;
+      repaidRunning = repaidAmount;
+      interestPaidRunning = Math.min(repaidAmount, interestsTotal);
+      const capitalPaid = repaidAmount - interestPaidRunning;
+      if (repaidAmount > 0) {
+        newRepaymentRows.push({
+          id: newId("REM"),
+          loanId: loan.id,
+          date: settleDate,
+          amount: repaidAmount,
+          capital: capitalPaid,
+          interest: interestPaidRunning,
+          remainingBalance: 0,
+          recordedBy: session.user.id,
+          createdAt: now,
+        });
+      }
+    } else if (hist.length > 0) {
+      for (const row of hist) {
+        const remaining = Math.max(0, loan.totalDue - repaidRunning);
+        if (remaining <= 0) break;
+        const amount = Math.min(row.amount, remaining);
+        if (amount <= 0) continue;
+        const interestLeft = Math.max(0, interestsTotal - interestPaidRunning);
+        const interest = Math.min(amount, interestLeft);
+        const capital = amount - interest;
+        repaidRunning += amount;
+        interestPaidRunning += interest;
+        const rem = Math.max(0, loan.totalDue - repaidRunning);
+        newRepaymentRows.push({
+          id: newId("REM"),
+          loanId: loan.id,
+          date: row.date,
+          amount,
+          capital,
+          interest,
+          remainingBalance: rem,
+          recordedBy: session.user.id,
+          createdAt: now,
+        });
+      }
+    }
+
+    const remAfter = Math.max(0, loan.totalDue - repaidRunning);
+    const status: Loan["status"] = settled
+      ? "Remboursé"
+      : remAfter <= 0
+        ? "Remboursé"
+        : loan.dueDate && todayIso > loan.dueDate
+          ? "En retard"
+          : "En cours";
+
+    next = {
+      ...next,
+      status,
+      disbursedAt: now,
+      repaid: repaidRunning,
+      pendingHistoricalRepayments: undefined,
+    };
     const copy = [...loans];
     copy[idx] = next;
     await writeCollectionForPeriod(period, "loans", copy);
@@ -1301,8 +1461,47 @@ export async function decideLoanAction(formData: FormData) {
       recordedBy: session.user.name,
       periodId,
     });
-    await audit("loan.disburse", loanId);
+
+    if (newRepaymentRows.length > 0) {
+      const repayments = await readCollectionForPeriodId<Repayment>(
+        periodId,
+        "repayments"
+      );
+      await writeCollectionForPeriod(period, "repayments", [
+        ...repayments,
+        ...newRepaymentRows,
+      ]);
+      for (const row of newRepaymentRows) {
+        await appendCashEntry({
+          date: row.date,
+          type: "Entrée",
+          description: settled
+            ? `Remboursement ${loan.id} (solde historique)`
+            : `Remboursement ${loan.id} (tranche historique)`,
+          amount: row.amount,
+          reference: row.id,
+          origin: "Remboursement",
+          recordedBy: session.user.name,
+          periodId,
+        });
+      }
+    }
+
+    const auditKey =
+      session.user.role === "SUPER_ADMIN"
+        ? settled
+          ? "loan.disburse.settled.superadmin"
+          : hist.length > 0
+            ? "loan.disburse.partial.superadmin"
+            : "loan.disburse.superadmin"
+        : settled
+          ? "loan.disburse.settled"
+          : hist.length > 0
+            ? "loan.disburse.partial"
+            : "loan.disburse";
+    await audit(auditKey, loanId);
     revalidatePath("/gestion/prets");
+    revalidatePath("/gestion/remboursements");
     revalidatePath("/gestion/caisse");
     revalidatePath("/gestion");
     return;
@@ -1357,6 +1556,418 @@ export async function deleteLoanAction(formData: FormData) {
   revalidatePath("/gestion/caisse");
   revalidatePath("/gestion");
   return;
+}
+
+export type UpdateLoanState = { error?: string; ok?: boolean } | null;
+
+export async function updateLoanAction(
+  _prev: UpdateLoanState,
+  formData: FormData
+): Promise<UpdateLoanState> {
+  const session = await requireGestionWrite();
+  const periodId = String(formData.get("periodId") || "").trim();
+  if (!periodId) return { error: "Tontine manquante." };
+
+  const parseWitness = (prefix: string): LoanWitness | null => {
+    const memberId = String(formData.get(`${prefix}MemberId`) || "").trim();
+    const name = String(formData.get(`${prefix}Name`) || "").trim();
+    const phoneRaw = String(formData.get(`${prefix}Phone`) || "").trim();
+    const address = String(formData.get(`${prefix}Address`) || "").trim();
+    const mode = String(formData.get(`${prefix}Mode`) || "member").trim();
+    const cipProvided = formData.get(`${prefix}CipProvided`) === "on";
+    if (mode === "member" || memberId) {
+      if (!memberId) return null;
+      return {
+        memberId,
+        name: name || memberId,
+        phone: phoneRaw || undefined,
+        address: address || undefined,
+        isGroupMember: true,
+      };
+    }
+    if (!name) return null;
+    return {
+      name,
+      phone: phoneRaw || undefined,
+      address: address || undefined,
+      isGroupMember: false,
+      cipProvided,
+    };
+  };
+
+  const w1 = parseWitness("witness1");
+  const w2 = parseWitness("witness2");
+  const witnesses = [w1, w2].filter(Boolean) as LoanWitness[];
+
+  const repayDates = formData.getAll("repayDate").map((v) => String(v).trim());
+  const repayAmounts = formData
+    .getAll("repayAmount")
+    .map((v) => Number(String(v).replace(",", ".")));
+  const repayIds = formData.getAll("repayId").map((v) => String(v).trim());
+  const repaymentsIn: { id?: string; date: string; amount: number }[] = [];
+  for (let i = 0; i < Math.max(repayDates.length, repayAmounts.length); i++) {
+    const date = repayDates[i] || "";
+    const amount = repayAmounts[i];
+    const id = repayIds[i] || undefined;
+    if (!date && !(Number.isFinite(amount) && amount > 0)) continue;
+    if (!date || !Number.isFinite(amount) || amount <= 0) {
+      return { error: "Chaque tranche doit avoir une date et un montant valide." };
+    }
+    repaymentsIn.push({
+      id: id || undefined,
+      date,
+      amount: Math.round(amount),
+    });
+  }
+
+  const feeRaw = Number(String(formData.get("withdrawalFee") || "0").replace(",", "."));
+  const interestExtraRaw = Number(
+    String(formData.get("interestExtra") || "0").replace(",", ".")
+  );
+
+  const parsed = updateLoanSchema.safeParse({
+    loanId: formData.get("loanId"),
+    date: formData.get("date"),
+    amount: Number(formData.get("amount")),
+    withdrawalFee: Number.isFinite(feeRaw) ? Math.max(0, Math.round(feeRaw)) : 0,
+    dueDate: formData.get("dueDate"),
+    applyInterest: formData.get("applyInterest") === "on",
+    interestExtra: Number.isFinite(interestExtraRaw)
+      ? Math.max(0, Math.round(interestExtraRaw))
+      : 0,
+    markSettled: formData.get("markSettled") === "on",
+    settledAt: String(formData.get("settledAt") || "").trim() || undefined,
+    notes: String(formData.get("notes") || "").trim() || undefined,
+    repayments: repaymentsIn,
+    witnesses,
+  });
+  if (!parsed.success) {
+    return { error: "Données invalides. Vérifiez les champs." };
+  }
+
+  const meta = await readMeta();
+  const period = meta.periods.find((p) => p.id === periodId);
+  if (!period) return { error: "Tontine introuvable." };
+
+  const [loans, allRepayments, settings, enrolled] = await Promise.all([
+    readCollectionForPeriodId<Loan>(periodId, "loans"),
+    readCollectionForPeriodId<Repayment>(periodId, "repayments"),
+    readObjectForPeriodId(periodId, "settings", DEFAULT_SETTINGS),
+    listEnrolledForPeriod(periodId),
+  ]);
+
+  const idx = loans.findIndex((l) => l.id === parsed.data.loanId);
+  if (idx < 0) return { error: "Prêt introuvable." };
+  const loan = loans[idx];
+  if (loan.status === "Refusé") {
+    return { error: "Un prêt refusé ne peut pas être modifié." };
+  }
+
+  const maxMonths = settings.loanMaxDurationMonths || 2;
+  const maxDue = addMonthsIso(parsed.data.date, maxMonths);
+  if (parsed.data.dueDate > maxDue) {
+    return {
+      error: `Échéance max : ${maxDue} (${maxMonths} mois après la date du prêt).`,
+    };
+  }
+  if (parsed.data.dueDate < parsed.data.date) {
+    return { error: "L’échéance doit être postérieure à la date du prêt." };
+  }
+
+  const threshold =
+    settings.loanSecondWitnessThreshold ??
+    DEFAULT_SETTINGS.loanSecondWitnessThreshold;
+  const needTwo = parsed.data.amount > threshold;
+  if (needTwo && parsed.data.witnesses.length < 2) {
+    return { error: "2 cautions requises au-delà du seuil." };
+  }
+  if (!needTwo && parsed.data.witnesses.length < 1) {
+    return { error: "Au moins une caution est requise." };
+  }
+  const groupCount = parsed.data.witnesses.filter((w) => w.isGroupMember).length;
+  if (groupCount < 1 || !parsed.data.witnesses[0]?.isGroupMember) {
+    return { error: "La 1ʳᵉ caution doit être un membre de la tontine." };
+  }
+
+  const activeById = new Map(
+    enrolled.filter((m) => m.status === "Actif").map((m) => [m.id, m])
+  );
+  const resolved: LoanWitness[] = [];
+  for (const w of parsed.data.witnesses) {
+    if (w.isGroupMember) {
+      if (!w.memberId || !activeById.has(w.memberId)) {
+        return { error: "Caution membre invalide ou inactive." };
+      }
+      if (w.memberId === loan.memberId) {
+        return { error: "L’emprunteur ne peut pas être sa propre caution." };
+      }
+      const m = activeById.get(w.memberId)!;
+      resolved.push({
+        memberId: m.id,
+        name: `${m.lastName} ${m.firstName}`.trim(),
+        phone: m.phone,
+        address: m.address,
+        isGroupMember: true,
+      });
+    } else {
+      if (w.name.length < 2) return { error: "Nom de caution externe requis." };
+      resolved.push({
+        name: w.name,
+        phone: w.phone,
+        address: w.address,
+        isGroupMember: false,
+        cipProvided: Boolean(w.cipProvided),
+      });
+    }
+  }
+  const ids = resolved.map((w) => w.memberId).filter(Boolean);
+  if (new Set(ids).size !== ids.length) {
+    return { error: "Cautions membres en double." };
+  }
+
+  const today = todayIsoLocal();
+  const applyInterest = parsed.data.applyInterest;
+  const contracted = loanContractedMonths(
+    parsed.data.date,
+    parsed.data.dueDate,
+    maxMonths
+  );
+  const isPending = loan.status === "En attente";
+  const startDate = isPending
+    ? parsed.data.date
+    : loan.disbursedAt?.slice(0, 10) || parsed.data.date;
+
+  const markSettled = parsed.data.markSettled;
+  const settleDate =
+    parsed.data.settledAt || parsed.data.dueDate || parsed.data.date || today;
+
+  let figures: ReturnType<typeof computeLoanFigures>;
+  let interestExtra: number;
+  let lateApplied: number;
+
+  if (markSettled) {
+    const asOf = computeLoanInterestAsOf(parsed.data.amount, settings, {
+      loanDate: parsed.data.date,
+      dueDate: parsed.data.dueDate,
+      asOfDate: settleDate,
+      applyInterest,
+      withdrawalFeeOverride: parsed.data.withdrawalFee,
+      maxMonths,
+    });
+    figures = {
+      withdrawalFee: asOf.withdrawalFee,
+      interestMonth1: asOf.interestMonth1,
+      interestMonth2: asOf.interestMonth2,
+      totalDue:
+        parsed.data.amount + asOf.interestMonth1 + asOf.interestMonth2,
+      contractedMonths: asOf.contractedMonths,
+      accruedMonths: asOf.accruedMonths,
+    };
+    interestExtra = asOf.interestExtra;
+    lateApplied = asOf.lateMonths;
+  } else {
+    figures = computeLoanFigures(parsed.data.amount, settings, {
+      withdrawalFeeOverride: parsed.data.withdrawalFee,
+      contractedMonths: contracted,
+      accruedMonths: applyInterest
+        ? loanAccruedNormalMonths(startDate, today, contracted)
+        : 0,
+      applyInterest,
+    });
+    interestExtra = applyInterest ? parsed.data.interestExtra : 0;
+    lateApplied =
+      applyInterest && parsed.data.dueDate && today > parsed.data.dueDate
+        ? completeLateMonths(parsed.data.dueDate, today)
+        : 0;
+  }
+
+  let totalDue =
+    parsed.data.amount +
+    figures.interestMonth1 +
+    figures.interestMonth2 +
+    interestExtra;
+
+  let repayRows = [...parsed.data.repayments].sort((a, b) =>
+    a.date.localeCompare(b.date)
+  );
+  if (repayRows.some((r) => r.date < parsed.data.date)) {
+    return { error: "Une tranche ne peut pas être antérieure à la date du prêt." };
+  }
+
+  let repaidSum = repayRows.reduce((s, r) => s + r.amount, 0);
+  if (markSettled && repaidSum < totalDue) {
+    const gap = totalDue - repaidSum;
+    repayRows = [
+      ...repayRows,
+      { date: settleDate, amount: gap },
+    ].sort((a, b) => a.date.localeCompare(b.date));
+    repaidSum = totalDue;
+  }
+  if (repaidSum > totalDue) {
+    return {
+      error: `Le total des tranches (${repaidSum}) dépasse le dû (${totalDue}).`,
+    };
+  }
+
+  // Prêt encore en attente : les tranches restent en pending jusqu’à décaissement.
+  if (isPending) {
+    const first = resolved[0];
+    const nextLoan: Loan = {
+      ...loan,
+      date: parsed.data.date,
+      amount: parsed.data.amount,
+      withdrawalFee: figures.withdrawalFee,
+      dueDate: parsed.data.dueDate,
+      applyInterest,
+      alreadySettled: markSettled || undefined,
+      settledAt: markSettled ? settleDate : undefined,
+      pendingHistoricalRepayments:
+        !markSettled && repayRows.length > 0
+          ? repayRows.map((r) => ({ date: r.date, amount: r.amount }))
+          : undefined,
+      interestMonth1: figures.interestMonth1,
+      interestMonth2: figures.interestMonth2,
+      interestExtra,
+      lateInterestAppliedMonths: lateApplied,
+      totalDue,
+      repaid: 0,
+      witnessName: first.name,
+      witnessPhone: first.phone,
+      witnessAddress: first.address,
+      witnesses: resolved,
+      notes: parsed.data.notes,
+    };
+    const copy = [...loans];
+    copy[idx] = nextLoan;
+    await writeCollectionForPeriod(period, "loans", copy);
+    await audit("loan.update", loan.id);
+    revalidatePath("/gestion/prets");
+    revalidatePath("/gestion");
+    return { ok: true };
+  }
+
+  // Décaissé : synchroniser remboursements + caisse
+  const oldRepays = allRepayments.filter((r) => r.loanId === loan.id);
+  for (const old of oldRepays) {
+    await removeCashEntriesByReference({
+      periodId,
+      reference: old.id,
+      origin: CASH_ORIGIN_REPAYMENT,
+    });
+  }
+
+  const interestsTotal =
+    figures.interestMonth1 + figures.interestMonth2 + interestExtra;
+  let repaidRunning = 0;
+  let interestPaidRunning = 0;
+  const now = new Date().toISOString();
+  const newRepayments: Repayment[] = [];
+  for (const row of repayRows) {
+    const remaining = Math.max(0, totalDue - repaidRunning);
+    if (remaining <= 0) break;
+    const amount = Math.min(row.amount, remaining);
+    if (amount <= 0) continue;
+    const interestLeft = Math.max(0, interestsTotal - interestPaidRunning);
+    const interest = Math.min(amount, interestLeft);
+    const capital = amount - interest;
+    repaidRunning += amount;
+    interestPaidRunning += interest;
+    const rem = Math.max(0, totalDue - repaidRunning);
+    newRepayments.push({
+      id: row.id && row.id.startsWith("REM") ? row.id : newId("REM"),
+      loanId: loan.id,
+      date: row.date,
+      amount,
+      capital,
+      interest,
+      remainingBalance: rem,
+      recordedBy: session.user.id,
+      createdAt: now,
+    });
+  }
+
+  const remAfter = Math.max(0, totalDue - repaidRunning);
+  const status: Loan["status"] =
+    remAfter <= 0 || markSettled
+      ? "Remboursé"
+      : parsed.data.dueDate && today > parsed.data.dueDate
+        ? "En retard"
+        : "En cours";
+
+  const first = resolved[0];
+  const nextLoan: Loan = {
+    ...loan,
+    date: parsed.data.date,
+    amount: parsed.data.amount,
+    withdrawalFee: figures.withdrawalFee,
+    dueDate: parsed.data.dueDate,
+    applyInterest,
+    alreadySettled: status === "Remboursé" && markSettled ? true : loan.alreadySettled,
+    settledAt:
+      status === "Remboursé"
+        ? settleDate
+        : undefined,
+    pendingHistoricalRepayments: undefined,
+    interestMonth1: figures.interestMonth1,
+    interestMonth2: figures.interestMonth2,
+    interestExtra,
+    lateInterestAppliedMonths: lateApplied,
+    totalDue,
+    repaid: repaidRunning,
+    status,
+    witnessName: first.name,
+    witnessPhone: first.phone,
+    witnessAddress: first.address,
+    witnesses: resolved,
+    notes: parsed.data.notes,
+  };
+
+  const copy = [...loans];
+  copy[idx] = nextLoan;
+  await writeCollectionForPeriod(period, "loans", copy);
+
+  const otherRepays = allRepayments.filter((r) => r.loanId !== loan.id);
+  await writeCollectionForPeriod(period, "repayments", [
+    ...otherRepays,
+    ...newRepayments,
+  ]);
+
+  // Sortie caisse prêt
+  await removeCashEntriesByReference({
+    periodId,
+    reference: loan.id,
+    origin: CASH_ORIGIN_LOAN,
+  });
+  await appendCashEntry({
+    date: parsed.data.date,
+    type: "Sortie",
+    description: `Prêt ${loan.id}`,
+    amount: parsed.data.amount + figures.withdrawalFee,
+    reference: loan.id,
+    origin: CASH_ORIGIN_LOAN,
+    recordedBy: session.user.name,
+    periodId,
+  });
+
+  for (const row of newRepayments) {
+    await appendCashEntry({
+      date: row.date,
+      type: "Entrée",
+      description: `Remboursement ${loan.id}`,
+      amount: row.amount,
+      reference: row.id,
+      origin: CASH_ORIGIN_REPAYMENT,
+      recordedBy: session.user.name,
+      periodId,
+    });
+  }
+
+  await audit("loan.update", loan.id);
+  revalidatePath("/gestion/prets");
+  revalidatePath("/gestion/remboursements");
+  revalidatePath("/gestion/caisse");
+  revalidatePath("/gestion");
+  return { ok: true };
 }
 
 export async function createRepaymentAction(formData: FormData) {

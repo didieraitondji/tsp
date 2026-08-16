@@ -169,6 +169,17 @@ export interface Loan {
   /** Mois de retard déjà facturés (intérêt extra). */
   lateInterestAppliedMonths?: number;
   dueDate: string;
+  /** Si false, aucun intérêt (contrat ni retard). Défaut true si absent. */
+  applyInterest?: boolean;
+  /** Prêt historique déjà soldé à l’enregistrement. */
+  alreadySettled?: boolean;
+  /** Date du solde (remboursement final), si alreadySettled. */
+  settledAt?: string;
+  /**
+   * Tranches déjà versées (import historique), appliquées à l’approbation.
+   * Vidées une fois traitées.
+   */
+  pendingHistoricalRepayments?: { date: string; amount: number }[];
   interestMonth1: number;
   interestMonth2: number;
   interestExtra: number;
