@@ -8,6 +8,7 @@ import {
   GESTION_ACCESS_ROLES,
   GESTION_WRITE_ROLES,
   LOAN_APPROVER_ROLES,
+  LOAN_INITIATOR_ROLES,
 } from "./permissions";
 import type { Role } from "@/lib/types";
 
@@ -49,6 +50,10 @@ export async function requireGestionWrite() {
 
 export async function requireLoanApprover() {
   return requireRole(LOAN_APPROVER_ROLES);
+}
+
+export async function requireLoanInitiator() {
+  return requireRole(LOAN_INITIATOR_ROLES);
 }
 
 export function homeForRole(role: Role): string {

@@ -27,6 +27,7 @@ import { todayIsoLocal } from "@/lib/cotisations-report";
 import {
   requireGestionWrite,
   requireLoanApprover,
+  requireLoanInitiator,
   requireRole,
   requireSession,
 } from "@/lib/auth/session";
@@ -1018,7 +1019,7 @@ export async function applyLateReportPenaltiesAction(
 }
 
 export async function createLoanAction(formData: FormData) {
-  const session = await requireGestionWrite();
+  const session = await requireLoanInitiator();
   const periodId = String(formData.get("periodId") || "").trim();
   const feeRaw = String(formData.get("withdrawalFee") ?? "").trim();
   const feeParsed =

@@ -17,6 +17,16 @@ export const LOAN_APPROVER_ROLES: Role[] = [
   "GESTIONNAIRE_LECTURE",
 ];
 
+/**
+ * Peuvent initier une demande de prêt (création).
+ * Inclut les gestionnaires lecture : ils créent, le quorum confirme.
+ */
+export const LOAN_INITIATOR_ROLES: Role[] = [
+  "SUPER_ADMIN",
+  "GESTIONNAIRE",
+  "GESTIONNAIRE_LECTURE",
+];
+
 /** Comptent dans le quorum d’approbation d’un prêt. */
 export const LOAN_QUORUM_ROLES: Role[] = ["GESTIONNAIRE", "GESTIONNAIRE_LECTURE"];
 
@@ -48,6 +58,10 @@ export function canWriteGestion(role: Role): boolean {
 
 export function canApproveLoans(role: Role): boolean {
   return LOAN_APPROVER_ROLES.includes(role);
+}
+
+export function canInitiateLoans(role: Role): boolean {
+  return LOAN_INITIATOR_ROLES.includes(role);
 }
 
 export function isLoanQuorumRole(role: Role): boolean {

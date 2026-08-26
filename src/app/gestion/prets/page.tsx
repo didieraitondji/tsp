@@ -18,7 +18,7 @@ import { todayIsoLocal } from "@/lib/cotisations-report";
 import { readCollectionForPeriodId, readObjectForPeriodId } from "@/lib/db/store";
 import { formatDate, formatFcfa } from "@/lib/format";
 import { normalizeSearch } from "@/lib/search";
-import { canApproveLoans, canWriteGestion } from "@/lib/auth/permissions";
+import { canApproveLoans, canInitiateLoans, canWriteGestion } from "@/lib/auth/permissions";
 import { requireGestionAccess } from "@/lib/auth/session";
 import type {
   Loan,
@@ -143,6 +143,7 @@ export default async function PretsPage({
 }) {
   const session = await requireGestionAccess();
   const canWrite = canWriteGestion(session.user.role);
+  const canInitiate = canInitiateLoans(session.user.role);
   const canApprove = canApproveLoans(session.user.role);
 
   const sp = await searchParams;
@@ -269,7 +270,7 @@ export default async function PretsPage({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {canWrite && periods.length > 0 && (
+          {canInitiate && periods.length > 0 && (
             <CreateLoanModal tontines={loanTontines} defaultPeriodId={periodId} />
           )}
         </div>
@@ -362,7 +363,7 @@ export default async function PretsPage({
                   {hasListFilters
                     ? "Aucun prêt ne correspond à ces filtres."
                     : loans.length === 0
-                      ? canWrite
+                      ? canInitiate
                         ? "Enregistrez le premier prêt via Nouveau prêt."
                         : "Aucun prêt pour cette tontine."
                       : "Aucun prêt ne correspond à ce filtre."}
