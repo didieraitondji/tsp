@@ -256,7 +256,7 @@ export default async function PretsPage({
 
   return (
     <div className="-mx-4 px-4 md:-mx-8 md:px-[100px]">
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--sand)]">
             Opérations
@@ -269,7 +269,7 @@ export default async function PretsPage({
             décaissement.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           {canInitiate && periods.length > 0 && (
             <CreateLoanModal tontines={loanTontines} defaultPeriodId={periodId} />
           )}

@@ -164,7 +164,6 @@ export function EditLoanModal({
   }
 
   const amountNum = Number(amount);
-  const feeNum = Number(String(withdrawalFee).replace(",", "."));
   const extraNum = Number(String(interestExtra).replace(",", "."));
   const needTwo =
     Number.isFinite(amountNum) && amountNum > loanSecondWitnessThreshold;

@@ -1782,7 +1782,7 @@ export async function updateLoanAction(
         : 0;
   }
 
-  let totalDue =
+  const totalDue =
     parsed.data.amount +
     figures.interestMonth1 +
     figures.interestMonth2 +

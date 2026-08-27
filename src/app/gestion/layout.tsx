@@ -24,8 +24,9 @@ export default async function GestionLayout({ children }: { children: ReactNode 
     >
       {!canWrite && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-          Compte en <strong>lecture seule</strong> : consultation et confirmation des prêts
-          uniquement. Aucune modification des données.
+          Compte en <strong>lecture seule</strong> : vous pouvez consulter,{" "}
+          <strong>initier un prêt</strong> et confirmer les demandes. Les autres
+          données (cotisations, caisse, etc.) restent non modifiables.
         </div>
       )}
       {children}

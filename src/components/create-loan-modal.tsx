@@ -288,7 +288,7 @@ export function CreateLoanModal({
           setOpen(true);
         }}
         disabled={tontines.length === 0}
-        className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-[#1D2D50] px-4 py-2.5 text-sm font-semibold text-[#FFCD79] transition hover:bg-[#152238] disabled:cursor-not-allowed disabled:opacity-50"
+        className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-full bg-[#1D2D50] px-4 py-2.5 text-sm font-semibold text-[#FFCD79] transition hover:bg-[#152238] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
       >
         <Handshake className="h-4 w-4" strokeWidth={1.75} />
         Nouveau prêt
