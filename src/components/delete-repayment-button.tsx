@@ -29,11 +29,12 @@ export function DeleteRepaymentButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex cursor-pointer items-center justify-center rounded-lg p-2 text-[var(--muted)] transition hover:bg-amber-50 hover:text-amber-900"
+        className="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-red-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-800"
         title="Annuler le remboursement"
         aria-label="Annuler le remboursement"
       >
-        <RotateCcw className="h-4 w-4" strokeWidth={1.75} />
+        <RotateCcw className="h-3.5 w-3.5" strokeWidth={2} />
+        Annuler
       </button>
 
       <Modal
