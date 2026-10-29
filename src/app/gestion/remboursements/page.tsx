@@ -1,5 +1,6 @@
 import { RotateCcw, Wallet, Receipt } from "lucide-react";
 import { CreateRepaymentModal } from "@/components/create-repayment-modal";
+import { DeleteRepaymentButton } from "@/components/delete-repayment-button";
 import { RemboursementsTontineFilter } from "@/components/remboursements-tontine-filter";
 import { listEnrolledForPeriod } from "@/lib/db/collections";
 import { loanRemaining, memberDisplayName } from "@/lib/db/domain";
@@ -211,13 +212,19 @@ export default async function RemboursementsPage({
                       <th className="px-3 py-3 font-semibold">Montant</th>
                       <th className="px-3 py-3 font-semibold">Capital</th>
                       <th className="px-3 py-3 font-semibold">Intérêts</th>
-                      <th className="px-5 py-3 font-semibold">Solde restant</th>
+                      <th className="px-3 py-3 font-semibold">Solde restant</th>
+                      {canWrite ? (
+                        <th className="px-5 py-3 font-semibold">Actions</th>
+                      ) : null}
                     </tr>
                   </thead>
                   <tbody>
                     {sorted.map((r) => {
                       const loan = loans.find((l) => l.id === r.loanId);
                       const m = loan ? byMember.get(loan.memberId) : undefined;
+                      const memberLabel = m
+                        ? memberDisplayName(m)
+                        : loan?.memberId ?? "—";
                       return (
                         <tr
                           key={r.id}
@@ -229,7 +236,7 @@ export default async function RemboursementsPage({
                           <td className="px-3 py-3.5">
                             <p className="font-mono text-xs text-[var(--muted)]">{r.loanId}</p>
                             <p className="font-medium text-[var(--navy)]">
-                              {m ? memberDisplayName(m) : loan?.memberId ?? "—"}
+                              {memberLabel}
                             </p>
                           </td>
                           <td className="px-3 py-3.5 tabular-nums font-medium text-[var(--navy)]">
@@ -241,9 +248,21 @@ export default async function RemboursementsPage({
                           <td className="px-3 py-3.5 tabular-nums text-[var(--muted)]">
                             {formatFcfa(r.interest)}
                           </td>
-                          <td className="px-5 py-3.5 tabular-nums font-medium text-[var(--navy)]">
+                          <td className="px-3 py-3.5 tabular-nums font-medium text-[var(--navy)]">
                             {formatFcfa(r.remainingBalance)}
                           </td>
+                          {canWrite ? (
+                            <td className="px-5 py-3.5">
+                              <DeleteRepaymentButton
+                                repaymentId={r.id}
+                                periodId={period.id}
+                                loanId={r.loanId}
+                                memberLabel={memberLabel}
+                                amount={r.amount}
+                                dateLabel={formatDate(r.date)}
+                              />
+                            </td>
+                          ) : null}
                         </tr>
                       );
                     })}

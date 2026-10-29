@@ -2059,6 +2059,101 @@ export async function createRepaymentAction(formData: FormData) {
   revalidatePath("/gestion/prets");
   revalidatePath("/gestion/caisse");
   revalidatePath("/gestion");
+  revalidatePath("/membre");
+  revalidatePath("/membre/prets");
+  return;
+}
+
+export async function deleteRepaymentAction(formData: FormData) {
+  await requireGestionWrite();
+  const repaymentId = String(formData.get("repaymentId") || "").trim();
+  const periodId = String(formData.get("periodId") || "").trim();
+  if (!repaymentId || !periodId) return;
+
+  const meta = await readMeta();
+  const period = meta.periods.find((p) => p.id === periodId);
+  if (!period) return;
+
+  const repayments = await readCollectionForPeriodId<Repayment>(periodId, "repayments");
+  const target = repayments.find((r) => r.id === repaymentId);
+  if (!target) return;
+
+  const loans = await readCollectionForPeriodId<Loan>(periodId, "loans");
+  const loan = loans.find((l) => l.id === target.loanId);
+  if (!loan) return;
+
+  const remainingForLoan = repayments
+    .filter((r) => r.loanId === loan.id && r.id !== repaymentId)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+
+  const interestsTotal =
+    loan.interestMonth1 + loan.interestMonth2 + loan.interestExtra;
+  let repaidRunning = 0;
+  let interestPaidRunning = 0;
+  const rebuilt: Repayment[] = remainingForLoan.map((r) => {
+    const amount = r.amount;
+    const interestLeft = Math.max(0, interestsTotal - interestPaidRunning);
+    const interest = Math.min(amount, interestLeft);
+    const capital = amount - interest;
+    repaidRunning += amount;
+    interestPaidRunning += interest;
+    const rem = Math.max(0, loan.totalDue - repaidRunning);
+    return {
+      ...r,
+      capital,
+      interest,
+      remainingBalance: rem,
+    };
+  });
+
+  const remAfter = Math.max(0, loan.totalDue - repaidRunning);
+  const today = todayIsoLocal();
+  const stillOpen = remAfter > 0;
+  const stillLate = stillOpen && Boolean(loan.dueDate) && today > loan.dueDate;
+  const nextStatus: Loan["status"] = !stillOpen
+    ? "Remboursé"
+    : stillLate
+      ? "En retard"
+      : "En cours";
+
+  await removeCashEntriesByReference({
+    periodId,
+    reference: repaymentId,
+    origin: CASH_ORIGIN_REPAYMENT,
+  });
+
+  const otherRepays = repayments.filter((r) => r.loanId !== loan.id);
+  await writeCollectionForPeriod(period, "repayments", [
+    ...otherRepays,
+    ...rebuilt,
+  ]);
+
+  await writeCollectionForPeriod(
+    period,
+    "loans",
+    loans.map((l) =>
+      l.id === loan.id
+        ? {
+            ...l,
+            repaid: repaidRunning,
+            status: nextStatus,
+            alreadySettled: stillOpen ? undefined : l.alreadySettled,
+            settledAt: stillOpen ? undefined : l.settledAt,
+          }
+        : l
+    )
+  );
+
+  await audit(
+    "repayment.delete",
+    `${loan.id}: -${target.amount} (reste ${remAfter})`
+  );
+  revalidatePath("/gestion/remboursements");
+  revalidatePath("/gestion/prets");
+  revalidatePath("/gestion/caisse");
+  revalidatePath("/gestion");
+  revalidatePath("/membre");
+  revalidatePath("/membre/prets");
   return;
 }
 
